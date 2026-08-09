@@ -1,0 +1,4 @@
+# Single-core builds: this crate is developed on a machine where parallel
+# rustc jobs are not wanted.
+[build]
+jobs = 1

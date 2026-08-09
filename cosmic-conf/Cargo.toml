@@ -6,6 +6,8 @@ license = "GPL-3.0-only"
 description = "Compiles a single Hyprland-idiom config file into the cosmic-config tree"
 
 [dependencies]
+ron = "0.12"
+serde = { version = "1.0.229", features = ["derive"] }
 
 [features]
 # `emit` links cosmic-config and the component crates. Off by default so the
@@ -13,3 +15,6 @@ description = "Compiles a single Hyprland-idiom config file into the cosmic-conf
 # dependency graph.
 default = []
 emit = []
+
+[dev-dependencies]
+tempfile = "3.27.0"

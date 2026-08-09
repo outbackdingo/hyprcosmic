@@ -21,8 +21,10 @@ pub enum Value {
     U32(u32),
     F32(f32),
     Str(String),
-    /// Straight RGBA bytes; conversion to COSMIC's f32 colour struct happens in `emit`.
-    Color(u8, u8, u8, u8),
+    /// `Option<Srgb>` target — no alpha channel.
+    Rgb(u8, u8, u8),
+    /// `Option<Srgba>` target — carries alpha.
+    Rgba(u8, u8, u8, u8),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -143,7 +145,7 @@ fn eval_arith(input: &str) -> String {
 /// Bare `#rrggbb` is deliberately **not** accepted: `#` begins a comment, so the
 /// value would be stripped before reaching here. Hyprland makes the same
 /// trade-off, and HyDE themes write colours as `rgba(...)`, so nothing is lost.
-fn parse_color(raw: &str) -> Option<Value> {
+fn parse_color(raw: &str) -> Option<(u8, u8, u8, u8)> {
     let s = raw.trim();
     let hex = if let Some(inner) = s.strip_prefix("rgba(").and_then(|s| s.strip_suffix(')')) {
         inner.trim().to_string()
@@ -154,19 +156,10 @@ fn parse_color(raw: &str) -> Option<Value> {
     };
 
     let hex = hex.trim_start_matches('#');
+    let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
     match hex.len() {
-        6 => Some(Value::Color(
-            u8::from_str_radix(&hex[0..2], 16).ok()?,
-            u8::from_str_radix(&hex[2..4], 16).ok()?,
-            u8::from_str_radix(&hex[4..6], 16).ok()?,
-            255,
-        )),
-        8 => Some(Value::Color(
-            u8::from_str_radix(&hex[0..2], 16).ok()?,
-            u8::from_str_radix(&hex[2..4], 16).ok()?,
-            u8::from_str_radix(&hex[4..6], 16).ok()?,
-            u8::from_str_radix(&hex[6..8], 16).ok()?,
-        )),
+        6 => Some((byte(0)?, byte(2)?, byte(4)?, 255)),
+        8 => Some((byte(0)?, byte(2)?, byte(4)?, byte(6)?)),
         _ => None,
     }
 }
@@ -193,7 +186,17 @@ fn coerce(raw: &str, ty: Ty, span: Span) -> Result<Value, Diagnostic> {
             .map(Value::F32)
             .map_err(|_| bad("a number")),
         Ty::Str => Ok(Value::Str(raw.to_string())),
-        Ty::Color => parse_color(raw).ok_or_else(|| bad("a colour like rgb(6b9fed) or rgba(6b9fed80)")),
+        Ty::Rgb => parse_color(raw)
+            .map(|(r, g, b, _)| Value::Rgb(r, g, b))
+            .ok_or_else(|| bad("a colour like rgb(6b9fed)")),
+        Ty::Rgba => parse_color(raw)
+            .map(|(r, g, b, a)| Value::Rgba(r, g, b, a))
+            .ok_or_else(|| bad("a colour like rgb(6b9fed) or rgba(6b9fed80)")),
+        Ty::Mode => match raw {
+            "dark" => Ok(Value::Bool(true)),
+            "light" => Ok(Value::Bool(false)),
+            _ => Err(bad("`dark` or `light`")),
+        },
     }
 }
 
@@ -425,14 +428,33 @@ mod tests {
     }
 
     #[test]
-    fn rgb_colors_parse() {
+    fn rgb_colors_parse_and_drop_alpha() {
+        // `accent` is Option<Srgb> — theme.rs:856 — so alpha must not appear.
         let r = resolved("theme {\n  accent = rgb(6b9fed)\n}\n");
-        match find(&r, "com.system76.CosmicTheme.Dark.Builder", "accent") {
-            WriteKind::Projected(f) => {
-                assert_eq!(f[&Vec::<String>::new()], Value::Color(0x6b, 0x9f, 0xed, 255));
-            }
-            other => panic!("expected Projected, got {other:?}"),
-        }
+        assert_eq!(
+            find(&r, "com.system76.CosmicTheme.Dark.Builder", "accent"),
+            &WriteKind::Whole(Value::Rgb(0x6b, 0x9f, 0xed))
+        );
+    }
+
+    #[test]
+    fn theme_mode_maps_to_is_dark() {
+        let r = resolved("theme {\n  mode = dark\n}\n");
+        assert_eq!(
+            find(&r, "com.system76.CosmicTheme.Mode", "is_dark"),
+            &WriteKind::Whole(Value::Bool(true))
+        );
+        let r = resolved("theme {\n  mode = light\n}\n");
+        assert_eq!(
+            find(&r, "com.system76.CosmicTheme.Mode", "is_dark"),
+            &WriteKind::Whole(Value::Bool(false))
+        );
+    }
+
+    #[test]
+    fn invalid_theme_mode_is_rejected() {
+        let d = errors("theme {\n  mode = purple\n}\n");
+        assert!(d[0].message.contains("`dark` or `light`"), "{}", d[0].message);
     }
 
     /// `#` always begins a comment, so a bare hex colour is stripped before it
@@ -447,13 +469,12 @@ mod tests {
 
     #[test]
     fn rgba_keeps_alpha() {
-        let r = resolved("theme {\n  accent = rgba(6b9fed80)\n}\n");
-        match find(&r, "com.system76.CosmicTheme.Dark.Builder", "accent") {
-            WriteKind::Projected(f) => {
-                assert_eq!(f[&Vec::<String>::new()], Value::Color(0x6b, 0x9f, 0xed, 0x80));
-            }
-            other => panic!("expected Projected, got {other:?}"),
-        }
+        // `bg_color` is Option<Srgba> — theme.rs:852 — so alpha survives.
+        let r = resolved("theme {\n  bg_color = rgba(6b9fed80)\n}\n");
+        assert_eq!(
+            find(&r, "com.system76.CosmicTheme.Dark.Builder", "bg_color"),
+            &WriteKind::Whole(Value::Rgba(0x6b, 0x9f, 0xed, 0x80))
+        );
     }
 
     #[test]

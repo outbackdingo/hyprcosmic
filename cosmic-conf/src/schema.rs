@@ -11,9 +11,13 @@ pub enum Ty {
     U32,
     F32,
     Str,
-    /// `rgb(rrggbb)` or `rgba(rrggbbaa)`. Bare `#rrggbb` is not accepted —
-    /// `#` begins a comment.
-    Color,
+    /// `rgb(rrggbb)` -> `Option<Srgb>` (no alpha). Bare `#rrggbb` is not
+    /// accepted: `#` begins a comment.
+    Rgb,
+    /// `rgb(rrggbb)`/`rgba(rrggbbaa)` -> `Option<Srgba>` (with alpha).
+    Rgba,
+    /// `dark`/`light` -> the `is_dark` boolean.
+    Mode,
 }
 
 /// Where a conf key's value lands in the cosmic-config tree.
@@ -101,6 +105,17 @@ macro_rules! both_themes {
                 key: $key,
                 path: $path,
             },
+        ]
+    };
+}
+
+/// Whole-value fan-out across both theme builders. An empty projection path
+/// would be a lie: these fields are `Option<..>` written in full.
+macro_rules! both_themes_direct {
+    ($key:literal) => {
+        &[
+            Target::Direct { component: DARK_BUILDER, version: 1, key: $key },
+            Target::Direct { component: LIGHT_BUILDER, version: 1, key: $key },
         ]
     };
 }
@@ -203,21 +218,21 @@ pub const REGISTRY: &[Entry] = &[
             version: 1,
             key: "is_dark",
         }],
-        ty: Ty::Str,
+        ty: Ty::Mode,
         validate: None,
         doc: "`dark` or `light`",
     },
     Entry {
         conf: "theme.accent",
-        targets: both_themes!("accent", &[]),
-        ty: Ty::Color,
+        targets: both_themes_direct!("accent"),
+        ty: Ty::Rgb,
         validate: None,
         doc: "Accent colour as rgb(rrggbb) or rgba(rrggbbaa)",
     },
     Entry {
         conf: "theme.bg_color",
-        targets: both_themes!("bg_color", &[]),
-        ty: Ty::Color,
+        targets: both_themes_direct!("bg_color"),
+        ty: Ty::Rgba,
         validate: None,
         doc: "Background base colour",
     },
