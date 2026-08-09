@@ -162,13 +162,38 @@ enum Target {
 
 Entry {
     conf:     "general.gaps_in",
-    target:   Projected { component: "com.system76.CosmicTk", version: 1,
-                          key: "gaps", path: &["0"] },
+    // Fan-out: Dark and Light are separate cosmic-config components
+    targets:  &[
+        Projected { component: "com.system76.CosmicTheme.Dark.Builder",  version: 1,
+                    key: "gaps", path: &["1"] },
+        Projected { component: "com.system76.CosmicTheme.Light.Builder", version: 1,
+                    key: "gaps", path: &["1"] },
+    ],
     ty:       Ty::U32,
     validate: Some(range(0..=128)),
     doc:      "Gap between adjacent tiled windows, in px",
 }
 ```
+
+**Spike-corrected facts** (verified in `vendor/libcosmic`):
+
+- `gaps: (u32, u32)` lives on `ThemeBuilder` (`cosmic-theme/src/model/theme.rs:895`), **not** `CosmicTk`.
+  Component IDs at `theme.rs:17-26`. Default `(0, 8)`.
+- Tuple order is **`(outer, inner)`** — so `gaps_out` is index `0` and `gaps_in` is index `1`.
+- Dark and Light Builders are **separate components**, so one conf key fans out to two targets.
+  `Entry` therefore carries `targets: &[Target]`, not a single target.
+- `CosmicTk` (`libcosmic/src/config/mod.rs:14`, ID `com.system76.CosmicTk`) holds
+  `icon_theme`, `interface_font`, `monospace_font`, `header_size`, `interface_density`,
+  `show_minimize`, `show_maximize`, `apply_theme_global` — `icon_theme` is needed by the HyDE
+  importer, which sets `$ICON_THEME`.
+
+**`emit` writes through the typed `cosmic-config` API, not raw files.** `Config::watch`
+(`cosmic-config/src/lib.rs:377`) is a `notify` inotify watch on the config directory that derives
+changed keys from file paths, so raw writes would in fact be observed — but `Config::set` gives
+correct RON encoding per type, atomic writes via `atomicwrites::AtomicFile` (`lib.rs:513`), and
+matches the watcher's `.atomicwrite` temp-file filter (`lib.rs:408`). cosmic-conf therefore
+depends on `cosmic-theme`, `cosmic-comp-config` and `cosmic-settings-config` for the concrete
+types, which also buys compile-time type checking of the registry.
 
 **Critical correctness property:** projected writes are read-modify-write, and multiple conf keys
 can share one target. `emit` MUST group by target key, fold all projections, then write once.

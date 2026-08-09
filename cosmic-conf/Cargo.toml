@@ -1,0 +1,15 @@
+[package]
+name = "cosmic-conf"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Compiles a single Hyprland-idiom config file into the cosmic-config tree"
+
+[dependencies]
+
+[features]
+# `emit` links cosmic-config and the component crates. Off by default so the
+# pure units (parser, schema, resolve) build and test without the libcosmic
+# dependency graph.
+default = []
+emit = []

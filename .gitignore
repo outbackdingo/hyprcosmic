@@ -2,5 +2,6 @@
 .omc/
 
 # Rust
-/target/
+target/
 **/*.rs.bk
+vendor/
