@@ -8,11 +8,13 @@
 //! COSMIC-specific, which keeps the hard logic testable without a compositor
 //! running. Only `emit` binds to cosmic-config, behind the `emit` feature.
 
+pub mod assets;
 pub mod emit;
 pub mod import;
 pub mod parser;
 pub mod resolve;
 pub mod schema;
+pub mod watch;
 
 pub use emit::{EmitError, Emitter, Planned};
 pub use import::{import_hypr_theme, render_report, Import};

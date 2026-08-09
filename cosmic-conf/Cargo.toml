@@ -6,8 +6,11 @@ license = "GPL-3.0-only"
 description = "Compiles a single Hyprland-idiom config file into the cosmic-config tree"
 
 [dependencies]
+flate2 = "1.1.9"
+notify = "8.2.0"
 ron = "0.12"
 serde = { version = "1.0.229", features = ["derive"] }
+tar = "0.4.46"
 
 [features]
 # `emit` links cosmic-config and the component crates. Off by default so the

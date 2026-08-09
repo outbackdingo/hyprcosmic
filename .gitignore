@@ -5,3 +5,6 @@
 target/
 **/*.rs.bk
 vendor/
+
+# Fork; becomes a submodule per spec repo topology
+cosmic-comp/
