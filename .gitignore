@@ -1,0 +1,6 @@
+# OMC operational artifacts
+.omc/
+
+# Rust
+/target/
+**/*.rs.bk
