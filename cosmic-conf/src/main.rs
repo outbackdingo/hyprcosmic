@@ -5,17 +5,20 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use cosmic_conf::{emit::Emitter, parse, render_diagnostic, resolve};
+use cosmic_conf::{emit::Emitter, import, parse, render_diagnostic, resolve};
 
 const USAGE: &str = "\
 cosmic-conf — compile cosmic.conf into the cosmic-config tree
 
 USAGE:
     cosmic-conf apply [--diff] [--config <path>]
+    cosmic-conf import-theme <hypr.theme> [--out <path>] [--report]
 
 OPTIONS:
     --diff            Show what would change without writing anything
     --config <path>   Config file (default: $XDG_CONFIG_HOME/hyprcosmic/cosmic.conf)
+    --out <path>      Write the generated cosmic.conf here (default: stdout)
+    --report          Print everything that did not translate cleanly
     -h, --help        Show this help
 ";
 
@@ -33,6 +36,18 @@ fn main() -> ExitCode {
     if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
         print!("{USAGE}");
         return ExitCode::SUCCESS;
+    }
+    if args[0] == "import-theme" {
+        return match run_import(&args[1..]) {
+            Ok(msg) => {
+                print!("{msg}");
+                ExitCode::SUCCESS
+            }
+            Err(msg) => {
+                eprint!("{msg}");
+                ExitCode::from(1)
+            }
+        };
     }
     if args[0] != "apply" {
         eprintln!("error: unknown command `{}`\n\n{USAGE}", args[0]);
@@ -129,4 +144,54 @@ fn run(config_path: &PathBuf, diff_only: bool) -> Result<String, String> {
         "Applied {written} change(s) to {}.",
         emitter.root().display()
     ))
+}
+
+fn run_import(args: &[String]) -> Result<String, String> {
+    let Some(src_path) = args.first().filter(|a| !a.starts_with("--")) else {
+        return Err(format!("error: import-theme needs a path\n\n{USAGE}"));
+    };
+    let out_path = args
+        .iter()
+        .position(|a| a == "--out")
+        .and_then(|i| args.get(i + 1))
+        .map(PathBuf::from);
+    let want_report = args.iter().any(|a| a == "--report");
+
+    let source = std::fs::read_to_string(src_path)
+        .map_err(|e| format!("error: cannot read {src_path}: {e}\n"))?;
+
+    // HyDE names a theme by its containing directory.
+    let name = PathBuf::from(src_path)
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "imported".into());
+
+    let imported = import::import_hypr_theme(&source, &name)
+        .map_err(|e| render_diagnostic(&source, e.span, &e.message, None))?;
+
+    let mut out = String::new();
+    match out_path {
+        Some(p) => {
+            if let Some(dir) = p.parent() {
+                std::fs::create_dir_all(dir)
+                    .map_err(|e| format!("error: cannot create {}: {e}\n", dir.display()))?;
+            }
+            std::fs::write(&p, &imported.conf)
+                .map_err(|e| format!("error: cannot write {}: {e}\n", p.display()))?;
+            out.push_str(&format!("Wrote {}\n", p.display()));
+        }
+        None => out.push_str(&imported.conf),
+    }
+
+    let dropped = imported.dropped().count();
+    if want_report {
+        out.push('\n');
+        out.push_str(&import::render_report(&imported));
+    } else if dropped > 0 {
+        out.push_str(&format!(
+            "\n{dropped} setting(s) did not translate. Re-run with --report for details.\n"
+        ));
+    }
+    Ok(out)
 }

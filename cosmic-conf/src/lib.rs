@@ -9,11 +9,13 @@
 //! running. Only `emit` binds to cosmic-config, behind the `emit` feature.
 
 pub mod emit;
+pub mod import;
 pub mod parser;
 pub mod resolve;
 pub mod schema;
 
 pub use emit::{EmitError, Emitter, Planned};
+pub use import::{import_hypr_theme, render_report, Import};
 pub use parser::{parse, Ast, ParseError, Span};
 pub use resolve::{resolve, Diagnostic, Resolved, Value, Write, WriteKind};
 
