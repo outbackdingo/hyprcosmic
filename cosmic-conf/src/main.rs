@@ -181,6 +181,9 @@ fn run_import(args: &[String]) -> Result<String, String> {
             std::fs::write(&p, &imported.conf)
                 .map_err(|e| format!("error: cannot write {}: {e}\n", p.display()))?;
             out.push_str(&format!("Wrote {}\n", p.display()));
+            if let Some(hint) = unsourced_hint(&p) {
+                out.push_str(&hint);
+            }
         }
         None => out.push_str(&imported.conf),
     }
@@ -201,6 +204,44 @@ fn run_import(args: &[String]) -> Result<String, String> {
     }
 
     Ok(out)
+}
+
+/// Warn when the file just written is not reachable from its sibling
+/// cosmic.conf, and say what to add.
+///
+/// A theme lives in its own file so that re-importing cannot clobber the
+/// keybindings around it, but that only works if something sources it.
+/// Writing an inert file and reporting success is the worst of both: the tool
+/// looks like it worked and the desktop does not change.
+///
+/// The match is textual and deliberately loose -- it is looking for evidence
+/// that the user already knows about the file, not parsing the config. A false
+/// negative costs one redundant hint; a false positive would hide a real
+/// problem, so the substring searched for is the filename itself.
+fn unsourced_hint(written: &Path) -> Option<String> {
+    let dir = written.parent()?;
+    let name = written.file_name()?.to_string_lossy().to_string();
+    let main = dir.join("cosmic.conf");
+
+    // Nothing to say when the theme *is* the config, or there is no config yet
+    // to add a line to: `apply` will be pointed at this file directly.
+    if main == written || !main.exists() {
+        return None;
+    }
+
+    let text = std::fs::read_to_string(&main).ok()?;
+    if text
+        .lines()
+        .any(|l| l.trim_start().starts_with("source") && l.contains(&name))
+    {
+        return None;
+    }
+
+    Some(format!(
+        "\nNothing sources it yet, so `apply` will ignore it. Add this to {}:\n\n    source = {}\n",
+        main.display(),
+        written.display(),
+    ))
 }
 
 /// The half of a theme that is not config: wallpapers, GTK/icon tarballs, and
