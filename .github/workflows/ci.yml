@@ -1,0 +1,197 @@
+# Build and check the parts of HyprCosmic that are not one of the two forks:
+# cosmic-conf, the shared waybar/rofi assets, and the installer that places them.
+#
+# Two jobs with different shapes on purpose. cosmic-conf is compiled code and
+# gets the same per-distribution matrix the forks do. The assets are text, and
+# text does not care which distribution it is on -- what matters there is whether
+# generated files are still in step with their generator, which is a single
+# question with a single answer.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  cosmic-conf:
+    name: cosmic-conf (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: fedora
+            image: fedora:latest
+          - distro: debian
+            image: debian:bookworm
+          - distro: arch
+            image: archlinux:latest
+
+    steps:
+      # Before checkout: actions/checkout needs git and these images are bare.
+      - name: Install build dependencies (fedora)
+        if: matrix.distro == 'fedora'
+        run: dnf -y install --setopt=install_weak_deps=False git curl gcc
+
+      - name: Install build dependencies (debian)
+        if: matrix.distro == 'debian'
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git curl ca-certificates build-essential
+
+      - name: Install build dependencies (arch)
+        if: matrix.distro == 'arch'
+        run: pacman -Syu --noconfirm --needed git curl base-devel
+
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable --profile minimal \
+                --component clippy
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cosmic-conf
+          key: ${{ matrix.distro }}
+
+      - name: Test
+        working-directory: cosmic-conf
+        run: cargo test --locked
+
+      # Warnings are errors here because the alternative is a build log nobody
+      # reads and a lint that has been failing for six months.
+      - name: Clippy
+        working-directory: cosmic-conf
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Build
+        working-directory: cosmic-conf
+        run: cargo build --release --locked
+
+      # The end-to-end question the unit tests cannot ask: does the cosmic.conf
+      # this repository actually ships still parse and resolve? A schema change
+      # that invalidates the shipped config would pass every test in the crate
+      # and break every user on first login.
+      #
+      # HOME is redirected so the resolution reports against an empty config
+      # tree rather than the runner's own. The binary is run directly instead of
+      # through `cargo run`: cargo keys its registry cache on HOME, so moving
+      # HOME would send it off to re-download every dependency into a directory
+      # the cache action does not know about.
+      #
+      # --diff writes nothing, and the last two lines hold it to that.
+      - name: The shipped cosmic.conf still resolves
+        working-directory: cosmic-conf
+        run: |
+          set -eux
+          fake="$RUNNER_TEMP/fakehome"
+          rm -rf "$fake"
+          mkdir -p "$fake/.config"
+          env HOME="$fake" XDG_CONFIG_HOME="$fake/.config" \
+            ./target/release/cosmic-conf apply --diff --config ../config/cosmic.conf
+          test -z "$(find "$fake" -type f -print -quit)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cosmic-conf-${{ matrix.distro }}
+          path: cosmic-conf/target/release/cosmic-conf
+          retention-days: 14
+
+  assets:
+    name: assets and installer
+    runs-on: ubuntu-latest
+    steps:
+      # Submodules because tools/install-assets.sh also places the session entry
+      # point, which is versioned in the cosmic-session fork. The script degrades
+      # gracefully when that checkout is absent -- it warns and skips those two
+      # files -- so this still passes before the submodules exist, just with less
+      # covered.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # config.jsonc is generated, and the repository's rule is that it is never
+      # hand-edited: every Nerd Font glyph in it comes from a codepoint table in
+      # generate-config.py, because Private Use Area characters are destroyed by
+      # being retyped and indistinguishable in a diff. That rule is currently
+      # enforced by remembering it. This enforces it instead -- regenerate, and
+      # the file must not move.
+      - name: The generated waybar config is in step with its generator
+        run: |
+          set -eux
+          python3 config/waybar/generate-config.py \
+            config/waybar/config.jsonc.in config/waybar/config.jsonc
+          git diff --exit-code -- config/waybar/config.jsonc
+
+      # No PUA character may reach the template or the generator's own source.
+      # The generator refuses to emit non-ASCII, but nothing stopped one being
+      # pasted into its inputs until here.
+      #
+      # Written as an `if` rather than `! grep ...` because grep exits 1 for "no
+      # match" and 2 for "no such file", and negating it would turn a vanished
+      # file into a pass -- the check would quietly stop checking anything.
+      - name: The template and generator stay pure ASCII
+        run: |
+          set -eu
+          for f in config/waybar/config.jsonc.in config/waybar/generate-config.py; do
+            test -f "$f"
+            if LC_ALL=C grep -Pn '[^\x00-\x7F]' "$f"; then
+              echo "$f: non-ASCII above. Glyphs belong in the codepoint table," \
+                   "not in the template." >&2
+              exit 1
+            fi
+          done
+
+      # A login-time script with a syntax error is a black screen with nowhere to
+      # print the reason.
+      - name: Syntax-check the shell scripts
+        run: |
+          set -eux
+          bash -n config/bin/hyprcosmic-powermenu
+          bash -n tools/install-assets.sh
+
+      # Both scripts are shellcheck-clean today, so this starts as a ratchet
+      # rather than a backlog. The runner image ships shellcheck; the install is
+      # there so that stopping to be true is a slow step and not a broken job.
+      - name: Shellcheck
+        run: |
+          set -eux
+          command -v shellcheck >/dev/null || {
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends shellcheck
+          }
+          shellcheck config/bin/hyprcosmic-powermenu tools/install-assets.sh
+
+      # A round trip. Installing into a staging root and then asking --check to
+      # confirm it exercises both halves of the script against each other, and
+      # the audit it runs first refuses to proceed at all unless every file under
+      # config/ is classified as shared, per-user or a generator input. That
+      # audit is the real test: it is what stops a new file being silently left
+      # out of the install.
+      - name: Install into a staging root, then verify it
+        run: |
+          set -eux
+          DESTDIR="$PWD/stage" ./tools/install-assets.sh
+          DESTDIR="$PWD/stage" ./tools/install-assets.sh --check
+          find stage -type f -printf '%M %10s %P\n'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyprcosmic-assets
+          path: stage/
+          retention-days: 14
