@@ -251,7 +251,7 @@ the required state. Unlocks waybar's `wlr/taskbar`. Plausibly upstreamable. **Re
 ### Patch B — Hyprland-compatible IPC socket
 
 Implement a subset of Hyprland's IPC at
-`$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket` (request/response) and `.socket2`
+`$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock` (request/response) and `.socket2.sock`
 (event stream).
 
 - Requests: `workspaces`, `activeworkspace`, `activewindow`, `clients`, `monitors`
