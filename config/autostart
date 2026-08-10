@@ -17,7 +17,8 @@
 # compositor's benefit, not waybar's.
 #
 # No --config: the default is derived from XDG_CONFIG_HOME (or HOME) inside the
-# process, so unlike the waybar line below this needs no hardcoded home path.
+# process, so unlike the waybar line below this needs no shell to find a home
+# directory for it.
 #
 # A malformed edit is not fatal. It is reported to the session log and the last
 # good configuration stays in place, so a typo cannot leave you at a broken
@@ -28,10 +29,17 @@ cosmic-conf watch
 # has to be per-user: it imports a sibling theme.css holding the installed HyDE
 # theme's palette, and a relative @import resolves against the importing file.
 #
-# The style path below is therefore absolute and contains a home directory.
-# This file is not a shell, so `~` and `$HOME` are literal text here -- replace
-# the path with your own if you are copying this template.
-waybar -c /usr/share/hyprcosmic/waybar/config.jsonc -s /home/dingo/.config/hyprcosmic/waybar/style.css
+# So the style path has to name a home directory, and this file is not a shell:
+# `~` and `$HOME` on a bare command line here are literal text, not expansions.
+# `sh -c` is what gets them expanded, for the same reason and under the same
+# terms as the wallpaper line below -- naming `sh` is naming a program, which
+# this file was always allowed to do.
+#
+# `exec` matters. Without it sh stays in the process tree as waybar's parent,
+# and cosmic-session would be supervising the shell rather than the bar: a
+# waybar that died would leave sh alive, so the restart that should have
+# happened never would.
+sh -c 'exec waybar -c /usr/share/hyprcosmic/waybar/config.jsonc -s "$HOME/.config/hyprcosmic/waybar/style.css"'
 
 # rofi is not a daemon. It is launched on demand by a keybinding, which COSMIC
 # stores in com.system76.CosmicSettings.Shortcuts rather than here. Set those
@@ -73,7 +81,7 @@ awww-daemon
 #
 #     ln -sfn ~/".local/share/wallpapers/hyprcosmic/<theme>/<image>" \
 #             ~/.local/share/wallpapers/hyprcosmic/current
-sh -c 'until awww query >/dev/null 2>&1; do sleep 0.2; done; exec awww img "/home/dingo/.local/share/wallpapers/hyprcosmic/current"'
+sh -c 'until awww query >/dev/null 2>&1; do sleep 0.2; done; exec awww img "$HOME/.local/share/wallpapers/hyprcosmic/current"'
 
 # A terminal, unconditionally, as the way back in.
 #
