@@ -16,6 +16,14 @@ waybar -c /usr/share/hyprcosmic/waybar/config.jsonc -s /usr/share/hyprcosmic/way
 # stores in com.system76.CosmicSettings.Shortcuts rather than here. Set those
 # with `bind` lines in cosmic.conf and `cosmic-conf apply`; see config/cosmic.conf.
 
-# HyDE drives wallpaper through swww, which is not packaged for Fedora. Once
-# it is available, uncomment:
-# swww-daemon
+# Wallpaper. The hyprcosmic profile does not start cosmic-bg, so without this
+# there is nothing drawing a background at all.
+#
+# HyDE calls this swww; upstream renamed it to awww at 0.12 and the Fedora
+# package Obsoletes swww < 0.12.0. /usr/bin/swww is a shim that prints a
+# deprecation warning and is documented as going away, so use the real name.
+# Packaged in the alebastr/sway-extras COPR.
+#
+# The daemon only holds the surface -- it shows nothing until an image is set.
+# Set one once with `awww img /path/to/wallpaper` and it is remembered.
+awww-daemon
