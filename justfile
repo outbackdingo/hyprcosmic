@@ -8,6 +8,10 @@ build:
     {{ just }} cosmic-applibrary/build-release
     {{ just }} cosmic-bg/build-release
     {{ make }} -C cosmic-comp all
+    # cargo directly, not `just cosmic-conf/build-release`: cosmic-conf is not a
+    # submodule, it is a crate in this repository, and it has no Justfile of its
+    # own to delegate to.
+    cargo build --release --manifest-path cosmic-conf/Cargo.toml
     {{ just }} cosmic-edit/build-release
     {{ just }} cosmic-files/build-release
     {{ just }} cosmic-greeter/build-release
@@ -36,6 +40,7 @@ install rootdir="" prefix="/usr/local": build
     {{ just }} rootdir={{rootdir}} prefix={{prefix}} cosmic-applibrary/install
     {{ just }} rootdir={{rootdir}} prefix={{prefix}} cosmic-bg/install
     {{ make }} -C cosmic-comp install DESTDIR={{rootdir}} prefix={{prefix}}
+    install -Dm0755 cosmic-conf/target/release/cosmic-conf {{rootdir}}{{prefix}}/bin/cosmic-conf
     {{ just }} rootdir={{rootdir}} prefix={{prefix}} cosmic-edit/install
     {{ just }} rootdir={{rootdir}} prefix={{prefix}} cosmic-files/install
     {{ just }} rootdir={{rootdir}} prefix={{prefix}} cosmic-greeter/install
@@ -59,6 +64,16 @@ install rootdir="" prefix="/usr/local": build
     {{ make }} -C cosmic-workspaces-epoch install DESTDIR={{rootdir}} prefix={{prefix}}
     {{ just }} rootdir={{rootdir}} pop-launcher/install
     {{ make }} -C xdg-desktop-portal-cosmic install DESTDIR={{rootdir}} prefix={{prefix}}
+    # The waybar and rofi assets, and the power menu. Last, because it is the
+    # only step that prints a warning worth reading: several of these files name
+    # /usr/share/hyprcosmic as a literal -- a .rasi has no variables and the
+    # autostart file is not a shell -- so a prefix other than /usr installs them
+    # somewhere they will not be looked for. The script says which files.
+    #
+    # --no-session because cosmic-session/install above already placed
+    # start-hyprcosmic and hyprcosmic.desktop, and installing them twice would
+    # only make it unclear which recipe owns them.
+    PREFIX={{prefix}} DESTDIR={{rootdir}} ./tools/install-assets.sh --no-session
 
 _mkdir dir:
    mkdir -p dir
@@ -80,6 +95,7 @@ clean:
     rm -rf cosmic-applibrary/target
     rm -rf cosmic-bg/target
     rm -rf cosmic-comp/target
+    rm -rf cosmic-conf/target
     rm -rf cosmic-edit/target
     {{ just }} cosmic-files/clean
     rm -rf cosmic-greeter/target
