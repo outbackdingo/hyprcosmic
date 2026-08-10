@@ -73,6 +73,7 @@ SHARED=(
     "config/waybar/rules.css:share/hyprcosmic/waybar/rules.css:644"
     "config/rofi/palette.rasi:share/hyprcosmic/rofi/palette.rasi:644"
     "config/rofi/rules.rasi:share/hyprcosmic/rofi/rules.rasi:644"
+    "config/bin/hyprcosmic-powermenu:bin/hyprcosmic-powermenu:755"
 )
 
 # The session entry point. Kept apart from SHARED because it is versioned in the

@@ -1,0 +1,105 @@
+#!/usr/bin/bash
+#
+# Power menu for a HyprCosmic session: lock, suspend, log out, reboot, shut down.
+#
+# WHY THIS EXISTS
+# ---------------
+# Stock COSMIC puts all of these behind the power applet in cosmic-panel.
+# HyprCosmic replaces the panel with waybar, so that applet never starts and the
+# session had no exit at all -- not even a logout -- short of `systemctl reboot`
+# typed into a terminal. This is the exit. It is reached from a keybinding and
+# from the bar, and both run this same script so the two can never disagree.
+#
+# Logging out goes through cosmic-session's own D-Bus interface rather than
+# killing anything. That is the method the panel applet called, and it is the
+# only one that lets the session stop its clients in order instead of pulling
+# the compositor out from under them; see `com.system76.CosmicSession.Exit` in
+# cosmic-session/src/service.rs.
+#
+# Reboot and poweroff go to systemd directly. polkit already authorises both for
+# an active local session without a prompt, which is why no pkexec is involved.
+#
+# NO GLYPHS HERE, DELIBERATELY
+# ----------------------------
+# Every entry is a plain word. Nerd Font icons live in the Private Use Area,
+# where they are indistinguishable from each other in a diff and are silently
+# destroyed by anything that retypes rather than copies them. waybar's power
+# icon is the only glyph in this feature and it comes from generate-config.py,
+# which checks each codepoint against the installed font.
+
+set -uo pipefail
+
+SESSION_DEST=com.system76.CosmicSession
+SESSION_PATH=/com/system76/CosmicSession
+
+command -v rofi >/dev/null 2>&1 || {
+    printf 'hyprcosmic-powermenu: rofi is not installed\n' >&2
+    exit 1
+}
+
+# Errors go to a rofi dialog, not just stderr. The two ways in are a keybinding
+# and a bar click, and neither has a terminal attached to read stderr from.
+fail() {
+    printf 'hyprcosmic-powermenu: %s\n' "$*" >&2
+    rofi -e "$*" >/dev/null 2>&1 || :
+    exit 1
+}
+
+# No theme arguments, so ~/.config/rofi/config.rasi applies and this matches the
+# launcher. Icons off because these entries have none and the reserved space
+# would sit there empty.
+#
+# -no-custom is what stops a typed line from being returned as if it were a
+# choice: without it, Return on an empty filter hands back whatever was typed,
+# and the case below would fall through to no branch at all. With it, anything
+# that is not one of the offered entries is refused.
+menu() {
+    local prompt="$1"
+    shift
+    printf '%s\n' "$@" | rofi -dmenu -i -no-custom -no-show-icons -p "$prompt"
+}
+
+# Only for the three that end the session. Locking and suspending undo
+# themselves with a keypress, so a confirmation there is pure friction; logging
+# out, rebooting and shutting down each throw away every unsaved thing on the
+# desktop, and this menu is one keystroke away at all times.
+#
+# "No" is listed first so that it is the selected row when the dialog opens.
+confirm() {
+    local answer
+    answer="$(menu "$1?" "No" "Yes")" || return 1
+    [[ "$answer" == "Yes" ]]
+}
+
+logout() {
+    command -v busctl >/dev/null 2>&1 ||
+        fail "busctl is not installed, so the session cannot be asked to exit"
+
+    busctl --user call "$SESSION_DEST" "$SESSION_PATH" "$SESSION_DEST" Exit && return 0
+
+    # Reaching here means cosmic-session is not answering on the bus. Say so
+    # rather than silently doing nothing: being unable to leave the session is
+    # the exact problem this script was written for, so a dead end here is
+    # worse than a blunt instrument. loginctl is that blunt instrument, and it
+    # is named explicitly so the choice to use it is the user's.
+    fail "cosmic-session did not answer on D-Bus.
+To force the session to end, run:
+    loginctl terminate-session ${XDG_SESSION_ID:-\$XDG_SESSION_ID}"
+}
+
+choice="$(menu "Power" "Lock" "Suspend" "Log out" "Reboot" "Shut down")" || exit 0
+
+case "$choice" in
+    "Lock")      exec loginctl lock-session ;;
+    "Suspend")   exec systemctl suspend ;;
+    "Log out")   confirm "Log out"   && logout ;;
+    "Reboot")    confirm "Reboot"    && exec systemctl reboot ;;
+    "Shut down") confirm "Shut down" && exec systemctl poweroff ;;
+    "")          ;;
+    *)           fail "unrecognised choice: ${choice}" ;;
+esac
+
+# Reached only by answering "No" to a confirmation, or dismissing it. The four
+# branches that act replace this process outright, and `fail` exits on its own,
+# so nothing else arrives here -- and changing your mind is not a failure.
+exit 0

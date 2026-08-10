@@ -63,7 +63,8 @@
         "memory",
         "power-profiles-daemon",
         "battery",
-        "tray"
+        "tray",
+        "custom/power"
     ],
 
     "ext/workspaces": {
@@ -265,5 +266,24 @@
         "on-click": "cosmic-settings power"
     },
 
-    "tray": { "icon-size": 18, "spacing": 8 }
+    "tray": { "icon-size": 18, "spacing": 8 },
+
+    // Last on the bar, because it is the one button here that can end the
+    // session or the uptime and the far corner is the hardest place to hit by
+    // accident.
+    //
+    // It is here for the same reason "custom/swaync" is: the hyprcosmic profile
+    // disables cosmic-panel, and COSMIC's power applet lives in that panel.
+    // Without this there is no logout, reboot or shutdown anywhere in the
+    // session -- the only way out was `systemctl reboot` from a terminal.
+    //
+    // The click runs the same script as the $mainMod SHIFT E binding rather
+    // than calling systemctl here, so the confirmation step cannot be bypassed
+    // by using the mouse.
+    "custom/power": {
+        "format": "@@POWER@@",
+        "tooltip": true,
+        "tooltip-format": "Lock, suspend, log out, reboot or shut down",
+        "on-click": "hyprcosmic-powermenu"
+    }
 }

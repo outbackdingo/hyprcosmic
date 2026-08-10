@@ -43,6 +43,7 @@ ICONS = {
     "SAVER": 0xF06C,
     "BALANCED": 0xF24E,
     "PROFILE": 0xF0E7,
+    "POWER": 0xF011,
     "BAT_00": 0xF008E,
     "BAT_10": 0xF007A,
     "BAT_20": 0xF007B,

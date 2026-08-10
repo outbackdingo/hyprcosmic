@@ -90,11 +90,20 @@ window#waybar {
 #memory,
 #power-profiles-daemon,
 #battery,
-#tray {
+#tray,
+#custom-power {
     padding: 0 10px;
     margin: 4px 2px;
     border-radius: 10px;
     background: @module-bg;
+}
+
+/* The only module here that is a button rather than a readout, so it is the
+ * only one that gains anything from a hover state. Colour rather than
+ * background, to match how the status colours below signal without moving
+ * anything. */
+#custom-power:hover {
+    color: @critical;
 }
 
 #clock {
