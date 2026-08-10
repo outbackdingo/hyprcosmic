@@ -280,7 +280,12 @@ fn run_import(args: &[String]) -> Result<String, String> {
 
     if args.iter().any(|a| a == "--assets") {
         out.push('\n');
-        out.push_str(&install_assets(src_path, &name, args)?);
+        out.push_str(&install_assets(
+            src_path,
+            &name,
+            imported.icon_theme.as_deref(),
+            args,
+        )?);
     }
 
     Ok(out)
@@ -324,13 +329,23 @@ fn unsourced_hint(written: &Path) -> Option<String> {
     ))
 }
 
-/// The half of a theme that is not config: wallpapers, GTK/icon tarballs, and
-/// the `.theme` files belonging to waybar, rofi and kitty.
+/// The half of a theme that is not config: wallpapers, GTK/icon tarballs, the
+/// `.theme` files belonging to waybar, rofi and kitty, and the small rofi
+/// files HyprCosmic has to compose itself.
 ///
-/// Separate from the conf translation because it is separate in kind — none of
-/// it is translated, only placed — and because it writes outside the
+/// Separate from the conf translation because it is separate in kind — almost
+/// none of it is translated, only placed — and because it writes outside the
 /// cosmic-config tree, which every other path in this tool does not.
-fn install_assets(src_path: &str, name: &str, args: &[String]) -> Result<String, String> {
+///
+/// `icon_theme` comes back out of the conf translation rather than being read
+/// from the theme directory again, because that is where the `$ICON_THEME`
+/// variable was already resolved.
+fn install_assets(
+    src_path: &str,
+    name: &str,
+    icon_theme: Option<&str>,
+    args: &[String],
+) -> Result<String, String> {
     let theme_dir = PathBuf::from(src_path)
         .parent()
         .map(Path::to_path_buf)
@@ -350,6 +365,7 @@ fn install_assets(src_path: &str, name: &str, args: &[String]) -> Result<String,
             &theme_dir,
             source_dir.as_deref(),
             name,
+            icon_theme,
             args.iter().any(|a| a == "--overwrite"),
         )
         .map_err(|errors| {

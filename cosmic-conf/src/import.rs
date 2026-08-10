@@ -49,6 +49,13 @@ pub struct Import {
     pub conf: String,
     /// Everything that did not translate cleanly.
     pub notes: Vec<Note>,
+    /// The theme's `$ICON_THEME`, if it names one.
+    ///
+    /// Also present in `conf` as `theme.icon_theme`, but repeated here as a
+    /// field because `assets.rs` needs it to generate rofi's `local.rasi` and
+    /// re-parsing the text this function just rendered to get it back would be
+    /// absurd.
+    pub icon_theme: Option<String>,
 }
 
 impl Import {
@@ -151,10 +158,14 @@ pub fn import_hypr_theme(src: &str, theme_name: &str) -> Result<Import, ParseErr
     let mut decoration: Vec<(String, String)> = Vec::new();
     let mut theme: Vec<(String, String)> = Vec::new();
     let mut notes = Vec::new();
+    let mut icon_theme = None;
 
     for (name, value, span) in &vars {
         match name.as_str() {
-            "ICON_THEME" => theme.push(("icon_theme".into(), value.clone())),
+            "ICON_THEME" => {
+                theme.push(("icon_theme".into(), value.clone()));
+                icon_theme = Some(value.clone());
+            }
             "COLOR_SCHEME" => {
                 let mode = if value.contains("light") {
                     "light"
@@ -249,6 +260,7 @@ pub fn import_hypr_theme(src: &str, theme_name: &str) -> Result<Import, ParseErr
     Ok(Import {
         conf: render_conf(theme_name, &general, &decoration, &theme, &notes),
         notes,
+        icon_theme,
     })
 }
 

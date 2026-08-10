@@ -105,7 +105,7 @@ fn parent_dir_traversal_never_writes_outside_destination() {
     let data = home.join(".local/share");
     let installer = Installer::with_paths(&data, &home);
 
-    let result = installer.plan(&theme_dir, Some(&source_dir), "Evil", true);
+    let result = installer.plan(&theme_dir, Some(&source_dir), "Evil", None, true);
 
     // Whether it is rejected at plan time or apply time, the invariant is the
     // same: nothing lands outside the destination.
@@ -128,7 +128,7 @@ fn absolute_path_entry_never_writes_outside_destination() {
     let data = home.join(".local/share");
     let installer = Installer::with_paths(&data, &home);
 
-    if let Ok(plan) = installer.plan(&theme_dir, Some(&source_dir), "Evil", true) {
+    if let Ok(plan) = installer.plan(&theme_dir, Some(&source_dir), "Evil", None, true) {
         let _ = installer.apply(&plan);
     }
     assert_nothing_outside(Path::new("/tmp/cosmic_conf_abs_canary"));
@@ -152,7 +152,7 @@ fn symlink_indirection_never_writes_outside_destination() {
     let data = home.join(".local/share");
     let installer = Installer::with_paths(&data, &home);
 
-    if let Ok(plan) = installer.plan(&theme_dir, Some(&source_dir), "Evil", true) {
+    if let Ok(plan) = installer.plan(&theme_dir, Some(&source_dir), "Evil", None, true) {
         let _ = installer.apply(&plan);
     }
     assert_nothing_outside(Path::new("/tmp/cosmic_conf_symlink_canary"));
@@ -173,7 +173,7 @@ fn well_formed_archive_still_installs() {
     let installer = Installer::with_paths(&data, &home);
 
     let plan = installer
-        .plan(&theme_dir, Some(&source_dir), "Evil", true)
+        .plan(&theme_dir, Some(&source_dir), "Evil", None, true)
         .expect("a well-formed archive must plan cleanly");
     installer.apply(&plan).expect("and must apply");
 

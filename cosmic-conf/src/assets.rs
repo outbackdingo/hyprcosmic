@@ -148,6 +148,23 @@ pub enum Action {
         dest: PathBuf,
         contents: String,
     },
+    /// A file this crate composes rather than copies. No `src`, because there
+    /// is no upstream file: rofi's entry point and its per-machine overrides
+    /// exist only because HyprCosmic needs them, and a HyDE theme has no
+    /// equivalent to copy from.
+    WriteGenerated {
+        kind: AssetKind,
+        dest: PathBuf,
+        contents: String,
+    },
+    /// A stable name for the wallpaper in use, as a symlink beside the copies.
+    ///
+    /// HyDE has the same problem and solves it the same way: everything that
+    /// wants to show the current wallpaper -- the launcher's sidebar, the
+    /// autostart's `awww img` line -- needs one path that does not change when
+    /// the theme does. HyDE points them at `~/.cache/hyde/wall.thmb`; this is
+    /// that, under a name we own.
+    LinkWallpaper { link: PathBuf, target: PathBuf },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -191,8 +208,10 @@ impl Draft {
 impl Action {
     pub fn kind(&self) -> AssetKind {
         match self {
-            Action::ExtractArchive { kind, .. } | Action::CopyVerbatim { kind, .. } => *kind,
-            Action::CopyWallpaper { .. } => AssetKind::Wallpaper,
+            Action::ExtractArchive { kind, .. }
+            | Action::CopyVerbatim { kind, .. }
+            | Action::WriteGenerated { kind, .. } => *kind,
+            Action::CopyWallpaper { .. } | Action::LinkWallpaper { .. } => AssetKind::Wallpaper,
         }
     }
 
@@ -200,7 +219,9 @@ impl Action {
         match self {
             Action::ExtractArchive { dest, .. }
             | Action::CopyWallpaper { dest, .. }
-            | Action::CopyVerbatim { dest, .. } => dest,
+            | Action::CopyVerbatim { dest, .. }
+            | Action::WriteGenerated { dest, .. } => dest,
+            Action::LinkWallpaper { link, .. } => link,
         }
     }
 }
@@ -308,6 +329,7 @@ impl Installer {
         theme_dir: &Path,
         source_dir: Option<&Path>,
         theme_name: &str,
+        icon_theme: Option<&str>,
         overwrite: bool,
     ) -> Result<Plan, Vec<AssetError>> {
         let mut draft = Draft::default();
@@ -335,7 +357,7 @@ impl Installer {
             }
         }
 
-        self.plan_wallpapers(theme_dir, theme_name, overwrite, &mut draft);
+        let wallpaper = self.plan_wallpapers(theme_dir, theme_name, overwrite, &mut draft);
 
         for (kind, filename) in [
             (AssetKind::Waybar, "waybar.theme"),
@@ -345,7 +367,59 @@ impl Installer {
             self.plan_verbatim(theme_dir, kind, filename, overwrite, &mut draft);
         }
 
+        self.plan_rofi(icon_theme, wallpaper.as_deref(), overwrite, &mut draft);
+
         draft.finish()
+    }
+
+    /// Where the launcher and the autostart both look for the wallpaper.
+    /// See `Action::LinkWallpaper`.
+    fn current_wallpaper_link(&self) -> PathBuf {
+        self.data_home
+            .join("wallpapers")
+            .join("hyprcosmic")
+            .join("current")
+    }
+
+    /// rofi's entry point and its per-machine overrides.
+    ///
+    /// Unlike everything else here these are composed, not copied — a HyDE
+    /// theme has no rofi config, only a palette, because HyDE supplies the
+    /// layout from its own launcher script and we have no launcher script. See
+    /// `config/rofi/config.rasi` for what the four-file import chain is doing.
+    ///
+    /// Both files are subject to the same already-installed rule as the rest:
+    /// a re-import will not silently replace a `local.rasi` you have edited.
+    /// That does mean switching themes needs `--overwrite` to take effect, but
+    /// so does `theme.rasi` beside it, and one rule that always holds beats two
+    /// that nearly do.
+    fn plan_rofi(
+        &self,
+        icon_theme: Option<&str>,
+        wallpaper_link: Option<&Path>,
+        overwrite: bool,
+        draft: &mut Draft,
+    ) {
+        let rofi_dir = self.home.join(".config").join("rofi");
+        for (name, contents) in [
+            ("config.rasi", CONFIG_RASI.to_string()),
+            ("local.rasi", render_local_rasi(icon_theme, wallpaper_link)),
+        ] {
+            let dest = rofi_dir.join(name);
+            if !overwrite && dest.exists() {
+                draft.skipped.push(Note {
+                    kind: AssetKind::Rofi,
+                    path: dest,
+                    reason: SkipReason::AlreadyInstalled,
+                });
+                continue;
+            }
+            draft.actions.push(Action::WriteGenerated {
+                kind: AssetKind::Rofi,
+                dest,
+                contents,
+            });
+        }
     }
 
     fn plan_archive(
@@ -373,16 +447,19 @@ impl Installer {
         }))
     }
 
+    /// Returns the path of the stable `current` symlink when the theme has a
+    /// wallpaper to point it at, so the caller can wire the launcher up to the
+    /// same image.
     fn plan_wallpapers(
         &self,
         theme_dir: &Path,
         theme_name: &str,
         overwrite: bool,
         draft: &mut Draft,
-    ) {
+    ) -> Option<PathBuf> {
         let wallpapers_dir = theme_dir.join("wallpapers");
         if !wallpapers_dir.is_dir() {
-            return;
+            return None;
         }
         let dest_dir = self
             .data_home
@@ -394,9 +471,14 @@ impl Installer {
             Ok(e) => e,
             Err(e) => {
                 draft.errors.push(e.into());
-                return;
+                return None;
             }
         };
+        // Sorted, because one of these becomes the `current` symlink and
+        // `read_dir` order is whatever the filesystem feels like. An arbitrary
+        // choice is fine; an unrepeatable one is not -- re-running the import
+        // would silently change the wallpaper.
+        let mut sources = Vec::new();
         for entry in entries {
             let entry = match entry {
                 Ok(e) => e,
@@ -405,11 +487,17 @@ impl Installer {
                     continue;
                 }
             };
-            let src = entry.path();
-            if !src.is_file() {
-                continue;
+            if entry.path().is_file() {
+                sources.push(entry.file_name());
             }
-            let dest = dest_dir.join(entry.file_name());
+        }
+        sources.sort();
+
+        let first = sources.first().map(|name| dest_dir.join(name));
+
+        for name in &sources {
+            let src = wallpapers_dir.join(name);
+            let dest = dest_dir.join(name);
             if !overwrite && dest.exists() {
                 draft.skipped.push(Note {
                     kind: AssetKind::Wallpaper,
@@ -420,6 +508,17 @@ impl Installer {
             }
             draft.actions.push(Action::CopyWallpaper { src, dest });
         }
+
+        // The link is repointed even when every wallpaper was skipped as
+        // already installed: the copies are theme-specific and unchanged, but
+        // the link is global and has to follow the theme just imported.
+        let target = first?;
+        let link = self.current_wallpaper_link();
+        draft.actions.push(Action::LinkWallpaper {
+            link: link.clone(),
+            target,
+        });
+        Some(link)
     }
 
     fn plan_verbatim(
@@ -484,17 +583,115 @@ impl Installer {
                     fs::copy(src, dest)?;
                     installed.push(dest.clone());
                 }
-                Action::CopyVerbatim { dest, contents, .. } => {
+                Action::CopyVerbatim { dest, contents, .. }
+                | Action::WriteGenerated { dest, contents, .. } => {
                     if let Some(parent) = dest.parent() {
                         fs::create_dir_all(parent)?;
                     }
                     fs::write(dest, contents)?;
                     installed.push(dest.clone());
                 }
+                Action::LinkWallpaper { link, target } => {
+                    if let Some(parent) = link.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    // `symlink` fails with EEXIST rather than replacing, and
+                    // `link.exists()` follows the link, so it answers false for
+                    // a dangling one -- which is exactly the case a previous
+                    // import leaves behind after its theme directory is gone.
+                    // `symlink_metadata` asks about the link itself.
+                    if fs::symlink_metadata(link).is_ok() {
+                        fs::remove_file(link)?;
+                    }
+                    std::os::unix::fs::symlink(target, link)?;
+                    installed.push(link.clone());
+                }
             }
         }
         Ok(Report { installed })
     }
+}
+
+/// rofi's entry point, embedded from the repo rather than kept as a string
+/// literal here so that it stays a real `.rasi` file: syntax-highlightable,
+/// diffable, and editable without recompiling to see the result.
+const CONFIG_RASI: &str = include_str!("../../config/rofi/config.rasi");
+
+/// Compose `~/.config/rofi/local.rasi` — the last of the four imports in
+/// `config.rasi`, holding the two things that depend on this machine rather
+/// than on the theme file or on `/usr/share`.
+///
+/// Both parts are optional and each is simply left out when there is nothing
+/// to say. An absent `configuration` block leaves rofi on its own icon theme;
+/// an absent `dummywall` rule leaves the sidebar filled with `@main-bg` from
+/// `rules.rasi`. Emitting a block with an empty value in either case would be
+/// worse than emitting nothing, because rofi would honour it.
+fn render_local_rasi(icon_theme: Option<&str>, wallpaper_link: Option<&Path>) -> String {
+    let mut out = String::from(
+        r#"/* Per-machine launcher settings for HyprCosmic.
+ *
+ * Generated by `cosmic-conf import-theme --assets`. It is the last of the four
+ * imports in config.rasi, so anything here wins; it is also overwritten by the
+ * next import run with --overwrite, so keep hand edits somewhere else.
+ *
+ * Two things belong in this file and nothing else does: values that name a path
+ * or a package on this particular machine, which neither /usr/share/hyprcosmic
+ * nor a HyDE theme file can know.
+ */
+"#,
+    );
+
+    match icon_theme.map(quote_rasi_string) {
+        Some(theme) => out.push_str(&format!(
+            r#"
+/* A list, so the first one actually installed wins. The theme names the first;
+ * Adwaita is the freedesktop baseline and is always present. */
+configuration {{
+    icon-theme: {theme}, "Adwaita";
+}}
+"#
+        )),
+        None => out.push_str("\n/* The theme names no icon theme, so rofi keeps its own. */\n"),
+    }
+
+    match wallpaper_link.map(|p| quote_rasi_string(&p.to_string_lossy())) {
+        Some(link) => out.push_str(&format!(
+            r#"
+/* The sidebar image. rofi's second url() argument is the scaling mode: "height"
+ * fills the panel vertically and crops the sides, which is how HyDE's style_1
+ * uses its wallpaper thumbnail.
+ *
+ * This is a symlink, not one of the copies beside it, so that the launcher and
+ * the autostart's `awww img` line can name the same path and stay in step
+ * through a theme change. Repoint the link, not this file. */
+dummywall {{
+    background-image: url({link}, height);
+}}
+"#
+        )),
+        None => out.push_str(
+            "\n/* The theme ships no wallpaper, so the sidebar stays a flat panel in\n \
+             * the theme's background colour. */\n",
+        ),
+    }
+
+    out
+}
+
+/// Quote a value for `.rasi`, which has no escape syntax worth relying on.
+///
+/// The icon theme name arrives from a downloaded theme file and so is
+/// untrusted; a `"` in it would close the string early and turn the rest of
+/// the generated file into whatever the theme author wanted. Dropping the
+/// characters that could do that is enough here — every value this is used on
+/// is a name or a path, where a quote or a newline is malformed input rather
+/// than something to preserve.
+fn quote_rasi_string(value: &str) -> String {
+    let cleaned: String = value
+        .chars()
+        .filter(|c| *c != '"' && *c != '\\' && !c.is_control())
+        .collect();
+    format!("\"{cleaned}\"")
 }
 
 /// Every HyDE `.theme` file — not just `hypr.theme` — opens with a
@@ -768,6 +965,31 @@ mod tests {
         fs::write(path, contents).unwrap();
     }
 
+    /// Every plan carries rofi's `config.rasi` and `local.rasi`, whatever the
+    /// theme does or does not ship. Tests about one particular asset look past
+    /// that scaffolding rather than counting it, so that adding another
+    /// generated file later does not break assertions about wallpapers.
+    fn theme_assets(plan: &Plan) -> Vec<&Action> {
+        plan.actions
+            .iter()
+            .filter(|a| !matches!(a, Action::WriteGenerated { .. }))
+            .collect()
+    }
+
+    fn generated(plan: &Plan, filename: &str) -> String {
+        plan.actions
+            .iter()
+            .find_map(|a| match a {
+                Action::WriteGenerated { dest, contents, .. }
+                    if dest.file_name().unwrap() == filename =>
+                {
+                    Some(contents.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no generated {filename} in plan"))
+    }
+
     #[test]
     fn path_traversal_tarball_is_rejected() {
         let tmp = TempDir::new().unwrap();
@@ -783,7 +1005,7 @@ mod tests {
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
         let err = installer
-            .plan(&theme_dir, Some(&source_dir), "Evil", false)
+            .plan(&theme_dir, Some(&source_dir), "Evil", None, false)
             .expect_err("a path-traversal entry must be rejected, not silently extracted");
         assert!(
             err.iter()
@@ -808,7 +1030,7 @@ mod tests {
         let installer = Installer::with_paths(home.join(".local/share"), &home);
 
         let err = installer
-            .plan(&theme_dir, Some(&source_dir), "Evil", false)
+            .plan(&theme_dir, Some(&source_dir), "Evil", None, false)
             .unwrap_err();
         assert!(
             err.iter()
@@ -838,7 +1060,7 @@ mod tests {
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
         let plan = installer
-            .plan(&theme_dir, Some(&source_dir), "Mocha", false)
+            .plan(&theme_dir, Some(&source_dir), "Mocha", None, false)
             .expect("a well-formed theme must plan cleanly");
 
         assert!(!plan.actions.is_empty());
@@ -857,7 +1079,9 @@ mod tests {
         let home = tmp.path().join("home");
         let data_home = home.join(".local/share");
         let installer = Installer::with_paths(&data_home, &home);
-        let plan = installer.plan(&theme_dir, None, "Mocha", false).unwrap();
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
         let report = installer.apply(&plan).unwrap();
 
         let dest = data_home.join("wallpapers/hyprcosmic/Mocha/bg.png");
@@ -879,7 +1103,9 @@ mod tests {
 
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
-        let plan = installer.plan(&theme_dir, None, "Mocha", false).unwrap();
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
         let report = installer.apply(&plan).unwrap();
 
         let dest = home.join(".config/rofi/theme.rasi");
@@ -906,7 +1132,9 @@ mod tests {
 
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
-        let plan = installer.plan(&theme_dir, None, "Mocha", false).unwrap();
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
         installer.apply(&plan).unwrap();
 
         assert_eq!(
@@ -940,7 +1168,7 @@ mod tests {
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
         let plan = installer
-            .plan(&theme_dir, Some(&source_dir), "Mocha", false)
+            .plan(&theme_dir, Some(&source_dir), "Mocha", None, false)
             .unwrap();
         installer.apply(&plan).unwrap();
 
@@ -973,11 +1201,11 @@ mod tests {
 
         let installer = Installer::with_paths(home.join(".local/share"), &home);
         let plan = installer
-            .plan(&theme_dir, Some(&source_dir), "Mocha", false)
+            .plan(&theme_dir, Some(&source_dir), "Mocha", None, false)
             .unwrap();
 
         assert!(
-            plan.actions.is_empty(),
+            theme_assets(&plan).is_empty(),
             "already-installed theme must not be re-planned"
         );
         assert_eq!(plan.skipped.len(), 1);
@@ -1010,9 +1238,9 @@ mod tests {
 
         let installer = Installer::with_paths(home.join(".local/share"), &home);
         let plan = installer
-            .plan(&theme_dir, Some(&source_dir), "Mocha", true)
+            .plan(&theme_dir, Some(&source_dir), "Mocha", None, true)
             .unwrap();
-        assert_eq!(plan.actions.len(), 1);
+        assert_eq!(theme_assets(&plan).len(), 1);
 
         installer.apply(&plan).unwrap();
         assert_eq!(
@@ -1029,9 +1257,11 @@ mod tests {
 
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
-        let plan = installer.plan(&theme_dir, None, "Mocha", false).unwrap();
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
 
-        assert!(plan.actions.is_empty());
+        assert!(theme_assets(&plan).is_empty());
         assert_eq!(plan.skipped.len(), 1);
         assert_eq!(plan.skipped[0].reason, SkipReason::NoDestinationHeader);
     }
@@ -1046,9 +1276,197 @@ mod tests {
 
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
-        let plan = installer.plan(&theme_dir, None, "Mocha", false).unwrap();
-        assert_eq!(plan.actions.len(), 1);
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
+        // The wallpaper copy and the `current` symlink that points at it.
+        assert_eq!(theme_assets(&plan).len(), 2);
         assert!(plan.skipped.is_empty());
+    }
+
+    #[test]
+    fn rofi_entry_point_is_written_even_for_a_theme_that_ships_nothing() {
+        // config.rasi is what makes rofi read any of this: rofi loads no other
+        // filename on its own. A theme with no rofi.theme still needs it, or
+        // the launcher falls back to its stock grey.
+        let tmp = TempDir::new().unwrap();
+        let theme_dir = tmp.path().join("theme");
+        fs::create_dir_all(&theme_dir).unwrap();
+
+        let home = tmp.path().join("home");
+        let installer = Installer::with_paths(home.join(".local/share"), &home);
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
+        installer.apply(&plan).unwrap();
+
+        let written = fs::read_to_string(home.join(".config/rofi/config.rasi")).unwrap();
+        assert!(written.contains("@import \"theme.rasi\""), "{written}");
+        assert!(written.contains("@import \"local.rasi\""), "{written}");
+    }
+
+    #[test]
+    fn local_rasi_carries_the_icon_theme_and_the_wallpaper_link() {
+        let tmp = TempDir::new().unwrap();
+        let theme_dir = tmp.path().join("theme");
+        write(&theme_dir.join("wallpapers/bg.png"), "x");
+
+        let home = tmp.path().join("home");
+        let installer = Installer::with_paths(home.join(".local/share"), &home);
+        let plan = installer
+            .plan(
+                &theme_dir,
+                None,
+                "Mocha",
+                Some("Tela-circle-dracula"),
+                false,
+            )
+            .unwrap();
+
+        let local = generated(&plan, "local.rasi");
+        assert!(
+            local.contains(r#""Tela-circle-dracula", "Adwaita""#),
+            "{local}"
+        );
+        // The stable link, not the copy: see `Action::LinkWallpaper`.
+        assert!(local.contains("wallpapers/hyprcosmic/current"), "{local}");
+        assert!(!local.contains("bg.png"), "{local}");
+    }
+
+    #[test]
+    fn local_rasi_omits_what_the_theme_does_not_supply() {
+        // An empty block would be worse than no block: rofi would honour an
+        // empty icon-theme list, and an unset background-image is what leaves
+        // the sidebar on the theme's own colour.
+        let tmp = TempDir::new().unwrap();
+        let theme_dir = tmp.path().join("theme");
+        fs::create_dir_all(&theme_dir).unwrap();
+
+        let home = tmp.path().join("home");
+        let installer = Installer::with_paths(home.join(".local/share"), &home);
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
+
+        let local = generated(&plan, "local.rasi");
+        assert!(!local.contains("icon-theme"), "{local}");
+        assert!(!local.contains("background-image"), "{local}");
+    }
+
+    #[test]
+    fn a_quote_in_an_icon_theme_name_cannot_break_out_of_the_string() {
+        // The name comes from a theme file that may have been downloaded from
+        // anywhere, and lands in a config rofi will execute nothing from but
+        // will happily be reconfigured by.
+        let tmp = TempDir::new().unwrap();
+        let theme_dir = tmp.path().join("theme");
+        fs::create_dir_all(&theme_dir).unwrap();
+
+        let home = tmp.path().join("home");
+        let installer = Installer::with_paths(home.join(".local/share"), &home);
+        let plan = installer
+            .plan(
+                &theme_dir,
+                None,
+                "Mocha",
+                Some("Tela\"; terminal: \"evil"),
+                false,
+            )
+            .unwrap();
+
+        let local = generated(&plan, "local.rasi");
+        // The payload survives as text -- it is a name, and mangling it beyond
+        // recognition would be its own bug -- but only as text: it stays inside
+        // one quoted string, so `terminal` is never a property rofi sets.
+        assert!(
+            local.contains(r#""Tela; terminal: evil", "Adwaita";"#),
+            "{local}"
+        );
+        assert!(
+            !local
+                .lines()
+                .any(|l| l.trim_start().starts_with("terminal:")),
+            "{local}"
+        );
+    }
+
+    #[test]
+    fn the_current_wallpaper_link_is_the_first_in_sorted_order() {
+        // Arbitrary is fine; unrepeatable is not. `read_dir` order would make
+        // re-importing the same theme change the wallpaper at random.
+        let tmp = TempDir::new().unwrap();
+        let theme_dir = tmp.path().join("theme");
+        for name in ["zebra.png", "apple.png", "middle.png"] {
+            write(&theme_dir.join("wallpapers").join(name), "x");
+        }
+
+        let home = tmp.path().join("home");
+        let installer = Installer::with_paths(home.join(".local/share"), &home);
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
+        installer.apply(&plan).unwrap();
+
+        let link = home.join(".local/share/wallpapers/hyprcosmic/current");
+        assert_eq!(
+            fs::read_link(&link).unwrap().file_name().unwrap(),
+            "apple.png"
+        );
+    }
+
+    #[test]
+    fn the_wallpaper_link_is_repointed_rather_than_failing_on_a_stale_one() {
+        // The second import is the interesting one: `symlink` refuses to
+        // replace, and a link left dangling by a removed theme directory reads
+        // as absent to `Path::exists`.
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+        let link = home.join(".local/share/wallpapers/hyprcosmic/current");
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("gone/old.png"), &link).unwrap();
+        assert!(
+            !link.exists(),
+            "the stale link must be dangling for this test"
+        );
+
+        let theme_dir = tmp.path().join("theme");
+        write(&theme_dir.join("wallpapers/new.png"), "x");
+
+        let installer = Installer::with_paths(home.join(".local/share"), &home);
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
+        installer.apply(&plan).unwrap();
+
+        assert_eq!(
+            fs::read_link(&link).unwrap().file_name().unwrap(),
+            "new.png"
+        );
+    }
+
+    #[test]
+    fn an_edited_local_rasi_is_not_replaced_without_overwrite() {
+        let tmp = TempDir::new().unwrap();
+        let theme_dir = tmp.path().join("theme");
+        fs::create_dir_all(&theme_dir).unwrap();
+
+        let home = tmp.path().join("home");
+        write(&home.join(".config/rofi/local.rasi"), "/* mine */\n");
+
+        let installer = Installer::with_paths(home.join(".local/share"), &home);
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
+        installer.apply(&plan).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(home.join(".config/rofi/local.rasi")).unwrap(),
+            "/* mine */\n"
+        );
+        assert!(plan
+            .skipped
+            .iter()
+            .any(|n| n.path.ends_with("local.rasi") && n.reason == SkipReason::AlreadyInstalled));
     }
 
     #[test]
@@ -1060,7 +1478,9 @@ mod tests {
 
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
-        let plan = installer.plan(&theme_dir, None, "Mocha", false).unwrap();
+        let plan = installer
+            .plan(&theme_dir, None, "Mocha", None, false)
+            .unwrap();
         let report = installer.apply(&plan).unwrap();
 
         let text = render_report(&plan, &report);
