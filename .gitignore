@@ -6,6 +6,6 @@ target/
 **/*.rs.bk
 vendor/
 
-# Forks; become submodules per spec repo topology
-cosmic-comp/
-cosmic-session/
+# The two forks used to be listed here, ignored until they had somewhere to
+# live. They are submodules now -- see .gitmodules -- so ignoring them would
+# only hide the commit each one is pinned to.

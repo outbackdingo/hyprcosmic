@@ -1,0 +1,6 @@
+[submodule "cosmic-comp"]
+	path = cosmic-comp
+	url = git@github.com:outbackdingo/hyprcosmic-comp.git
+[submodule "cosmic-session"]
+	path = cosmic-session
+	url = git@github.com:outbackdingo/hyprcosmic-session.git
