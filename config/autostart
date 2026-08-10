@@ -7,6 +7,23 @@
 # `#` starts a comment where a word would start, so `--color=#1a1b26` is fine
 # but `--color #1a1b26` is not; quote it as '#1a1b26' if you need the latter.
 
+# Keep cosmic-config in step with cosmic.conf for the whole session: compile
+# once at login, then again on every edit to it or to anything it sources.
+#
+# First in the file because its startup pass is what makes "the file wins" true
+# at login rather than only when you last ran `apply` by hand -- whatever
+# COSMIC's settings UI stored since then is overwritten before the desktop
+# settles. The bar does not read cosmic-config, so the ordering is for the
+# compositor's benefit, not waybar's.
+#
+# No --config: the default is derived from XDG_CONFIG_HOME (or HOME) inside the
+# process, so unlike the waybar line below this needs no hardcoded home path.
+#
+# A malformed edit is not fatal. It is reported to the session log and the last
+# good configuration stays in place, so a typo cannot leave you at a broken
+# desktop -- fix the file and the next save applies.
+cosmic-conf watch
+
 # The bar. The layout is shared and lives under /usr/share, but the stylesheet
 # has to be per-user: it imports a sibling theme.css holding the installed HyDE
 # theme's palette, and a relative @import resolves against the importing file.
