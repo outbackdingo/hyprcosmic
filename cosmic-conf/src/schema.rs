@@ -162,6 +162,17 @@ pub const REGISTRY: &[Entry] = &[
         doc: "Automatically tile new windows",
     },
     Entry {
+        conf: "general.preserve_split",
+        targets: &[Target::Direct {
+            component: COMP,
+            version: 1,
+            key: "preserve_split",
+        }],
+        ty: Ty::Bool,
+        validate: None,
+        doc: "Open new windows alongside the focused one instead of splitting it",
+    },
+    Entry {
         conf: "general.active_hint",
         targets: &[Target::Direct {
             component: COMP,
@@ -357,6 +368,18 @@ mod tests {
         let e = lookup("general.autotile").unwrap();
         assert_eq!(e.targets.len(), 1);
         assert_eq!(e.targets[0].component(), "com.system76.CosmicComp");
+    }
+
+    #[test]
+    fn preserve_split_targets_the_forks_own_comp_key() {
+        // Unlike every other `general` key this one does not exist upstream --
+        // it is a field this fork adds to `CosmicCompConfig`. If a rebase ever
+        // drops that field the compositor silently ignores the key, so pin the
+        // exact target here rather than trusting the generic registry checks.
+        let e = lookup("general.preserve_split").unwrap();
+        assert_eq!(e.targets.len(), 1);
+        assert_eq!(e.targets[0].component(), "com.system76.CosmicComp");
+        assert!(matches!(e.ty, Ty::Bool));
     }
 
     #[test]
