@@ -186,6 +186,10 @@ impl Emitter {
             WriteKind::Projected(fields) => {
                 composite(&write.target, fields, previous.as_deref(), &path)?
             }
+            // No merge with `previous`: cosmic.conf owns this value outright,
+            // which is the whole point of the one-way model. Anything set in
+            // COSMIC's own settings UI is replaced, not accumulated.
+            WriteKind::Verbatim(s) => s.clone(),
         };
 
         Ok(Planned {

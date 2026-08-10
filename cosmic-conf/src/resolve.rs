@@ -12,6 +12,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::bind;
 use crate::parser::{Ast, Item, Span, Spanned};
 use crate::schema::{self, Entry, Range, Target, Ty};
 
@@ -49,6 +50,13 @@ pub enum WriteKind {
     Whole(Value),
     /// Field path -> value, folded from every conf key touching this target.
     Projected(BTreeMap<Vec<String>, Value>),
+    /// Pre-rendered RON owning the whole value.
+    ///
+    /// Used where the target's shape is a collection rather than a scalar, so
+    /// there is no `Value` to coerce into: keybindings fold many `bind` lines
+    /// into one map. Rendering happens at the point that understands the shape
+    /// (`bind::render`) instead of being reconstructed in `emit`.
+    Verbatim(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -234,7 +242,41 @@ pub fn resolve(ast: &Ast) -> Result<Resolved, Vec<Diagnostic>> {
     let mut projected: BTreeMap<TargetKey, BTreeMap<Vec<String>, Value>> = BTreeMap::new();
     let mut whole: BTreeMap<TargetKey, (Value, Span)> = BTreeMap::new();
 
+    // `bind` is the one repeatable key in the language: many lines fold into a
+    // single map rather than the last one winning, so it cannot go through the
+    // schema, which is built around one conf key naming one value.
+    let mut binds: Vec<(bind::Bind, Span)> = Vec::new();
+
     for (conf, raw_value, key_span) in &flat {
+        if conf == "bind" {
+            let expanded = expand_vars(&raw_value.value, &vars);
+            match bind::parse_bind(&expanded, raw_value.span) {
+                Ok(b) => {
+                    if let Some((prev, prev_span)) = binds
+                        .iter()
+                        .find(|(o, _)| o.mods == b.mods && o.key == b.key)
+                    {
+                        diags.push(Diagnostic {
+                            message: format!(
+                                "this key combination is already bound to `{}`",
+                                prev.action
+                            ),
+                            span: raw_value.span,
+                            help: Some(format!("the earlier bind is on line {}", prev_span.line)),
+                        });
+                        continue;
+                    }
+                    binds.push((b, raw_value.span));
+                }
+                Err(e) => diags.push(Diagnostic {
+                    message: e.message,
+                    span: e.span,
+                    help: e.help,
+                }),
+            }
+            continue;
+        }
+
         let Some(entry) = schema::lookup(conf) else {
             diags.push(Diagnostic {
                 message: format!("unknown key `{conf}`"),
@@ -276,6 +318,21 @@ pub fn resolve(ast: &Ast) -> Result<Resolved, Vec<Diagnostic>> {
         target,
         kind: WriteKind::Projected(fields),
     }));
+
+    if !binds.is_empty() {
+        let rendered = bind::render(&binds.iter().map(|(b, _)| b.clone()).collect::<Vec<_>>());
+        writes.push(Write {
+            // cosmic-comp merges `custom` over `defaults`
+            // (cosmic-settings-daemon `config/src/shortcuts/mod.rs`), so writing
+            // here overrides a stock shortcut without touching the system file.
+            target: TargetKey {
+                component: "com.system76.CosmicSettings.Shortcuts".into(),
+                version: 1,
+                key: "custom".into(),
+            },
+            kind: WriteKind::Verbatim(rendered),
+        });
+    }
 
     writes.sort_by(|a, b| a.target.cmp(&b.target));
     Ok(Resolved { writes })
@@ -344,6 +401,72 @@ mod tests {
     fn errors(src: &str) -> Vec<Diagnostic> {
         let ast = parse(src).expect("parse failed");
         resolve(&ast).unwrap_err()
+    }
+
+    #[test]
+    fn binds_fold_into_one_write_against_the_shortcuts_custom_key() {
+        let r = resolved(
+            "bind = SUPER, D, exec, rofi -show drun\nbind = SUPER, Q, killactive\n",
+        );
+        let w: Vec<_> = r
+            .writes
+            .iter()
+            .filter(|w| w.target.component == "com.system76.CosmicSettings.Shortcuts")
+            .collect();
+        assert_eq!(w.len(), 1, "every bind belongs to one map");
+        assert_eq!(w[0].target.key, "custom");
+        assert_eq!(w[0].target.version, 1);
+
+        let WriteKind::Verbatim(ron) = &w[0].kind else {
+            panic!("expected verbatim RON, got {:?}", w[0].kind);
+        };
+        assert!(ron.contains(r#"(modifiers: [Super], key: "d"): Spawn("rofi -show drun")"#), "{ron}");
+        assert!(ron.contains(r#"(modifiers: [Super], key: "q"): Close"#), "{ron}");
+    }
+
+    #[test]
+    fn a_bind_expands_variables_like_the_mainmod_idiom_everyone_uses() {
+        // Practically every hyprland.conf opens with `$mainMod = SUPER`.
+        let r = resolved("$mainMod = SUPER\nbind = $mainMod, D, exec, rofi -show drun\n");
+        let WriteKind::Verbatim(ron) = &r.writes.last().unwrap().kind else {
+            panic!("expected verbatim RON");
+        };
+        assert!(ron.contains("modifiers: [Super]"), "{ron}");
+    }
+
+    #[test]
+    fn arithmetic_is_not_applied_to_a_command() {
+        // `eval_arith` would happily rewrite the `-` in a command line.
+        let r = resolved("bind = SUPER, V, exec, pactl set-sink-volume @DEFAULT_SINK@ -5%\n");
+        let WriteKind::Verbatim(ron) = &r.writes.last().unwrap().kind else {
+            panic!("expected verbatim RON");
+        };
+        assert!(ron.contains("@DEFAULT_SINK@ -5%"), "{ron}");
+    }
+
+    #[test]
+    fn binding_the_same_combination_twice_is_an_error_not_a_silent_overwrite() {
+        let d = errors("bind = SUPER, D, exec, rofi -show drun\nbind = SUPER, D, killactive\n");
+        assert_eq!(d.len(), 1);
+        assert!(d[0].message.contains("already bound"), "{}", d[0].message);
+        assert!(d[0].help.as_ref().unwrap().contains("line 1"), "{:?}", d[0].help);
+    }
+
+    #[test]
+    fn no_binds_means_the_shortcuts_file_is_left_alone() {
+        // Writing an empty map would wipe shortcuts set through COSMIC's UI for
+        // anyone whose cosmic.conf simply does not mention keybindings.
+        let r = resolved("general {\n    gaps_in = 4\n}\n");
+        assert!(r
+            .writes
+            .iter()
+            .all(|w| w.target.component != "com.system76.CosmicSettings.Shortcuts"));
+    }
+
+    #[test]
+    fn a_bad_bind_is_reported_with_the_rest_of_the_file() {
+        let d = errors("bind = SUPER, X, frobnicate\ngeneral {\n    gaps_inn = 8\n}\n");
+        assert_eq!(d.len(), 2, "resolve reports everything in one pass: {d:?}");
     }
 
     fn find<'a>(r: &'a Resolved, component: &str, key: &str) -> &'a WriteKind {

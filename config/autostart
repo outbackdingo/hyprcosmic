@@ -13,8 +13,8 @@
 waybar -c /usr/share/hyprcosmic/waybar/config.jsonc -s /usr/share/hyprcosmic/waybar/style.css
 
 # rofi is not a daemon. It is launched on demand by a keybinding, which COSMIC
-# stores in com.system76.CosmicSettings.Shortcuts rather than here. Until that
-# binding is set, run `rofi -show drun` from a terminal.
+# stores in com.system76.CosmicSettings.Shortcuts rather than here. Set those
+# with `bind` lines in cosmic.conf and `cosmic-conf apply`; see config/cosmic.conf.
 
 # HyDE drives wallpaper through swww, which is not packaged for Fedora. Once
 # it is available, uncomment:
