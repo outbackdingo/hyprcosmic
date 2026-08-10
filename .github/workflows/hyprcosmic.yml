@@ -6,7 +6,11 @@
 # text does not care which distribution it is on -- what matters there is whether
 # generated files are still in step with their generator, which is a single
 # question with a single answer.
-name: CI
+# The name is not "CI", which is upstream's ci.yml. Two workflows sharing a name
+# share `${{ github.workflow }}`, and the concurrency group below is built from
+# it -- they would cancel each other on every push, and whichever started second
+# would be the only one that ever reported.
+name: HyprCosmic
 
 on:
   push:
