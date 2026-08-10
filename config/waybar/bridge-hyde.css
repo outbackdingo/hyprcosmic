@@ -24,3 +24,13 @@
  * or once blur lands.
  */
 @define-color bar-bg   alpha(@main-bg, 0.85);
+
+/* The pill behind each module. Derived rather than themed: HyDE has no name
+ * for it, because in HyDE the pill IS the bar -- its modules sit on a
+ * transparent strip and the compositor blurs the desktop behind them. Without
+ * blur that reads as text floating on the wallpaper, so here the bar keeps a
+ * background and the pills are a light lift off it.
+ *
+ * Derived from the foreground, not the background, so it stays visible whether
+ * the theme is dark or light. */
+@define-color module-bg  alpha(@main-fg, 0.08);

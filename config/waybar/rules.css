@@ -3,10 +3,28 @@
  * No colour literals: every colour here is a name defined by palette.css and
  * possibly re-pointed by bridge-hyde.css. That separation is what lets a theme
  * change the palette without touching a single rule.
+ *
+ * The look is HyDE's: a strip carrying rounded pills rather than a flat row of
+ * text. HyDE gets its pills to float by making the bar itself transparent and
+ * letting the compositor blur the desktop behind them; cosmic-comp has no
+ * rule-driven blur, so the bar keeps a background here and the pills lift off
+ * it instead. See bridge-hyde.css for the two colours that implements.
  */
 
 * {
-    font-family: "FontAwesome 6 Free", "Noto Sans", sans-serif;
+    /* JetBrainsMono Nerd Font first, and it has to be first.
+     *
+     * This previously named "FontAwesome 6 Free", which is not even the
+     * installed family's real name ("Font Awesome 6 Free") -- fontconfig's
+     * fuzzy matching resolved it anyway, to the Regular face, which carries
+     * only a small subset of the icon set. Every glyph outside that subset
+     * then came from whatever fallback fontconfig picked per character, so the
+     * bar's icons were only accidentally consistent.
+     *
+     * The Nerd Font carries the whole icon set and the text, so naming it
+     * first makes one font answer for both. Every codepoint in config.jsonc
+     * was checked against this family specifically. */
+    font-family: "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
     font-size: 13px;
     border: none;
     border-radius: 0;
@@ -18,15 +36,22 @@ window#waybar {
     color: @bar-fg;
 }
 
+/* Workspaces: pills, with the active one filled rather than underlined. */
+#workspaces {
+    margin: 0 4px;
+}
+
 #workspaces button {
-    padding: 0 8px;
+    padding: 0 10px;
+    margin: 4px 2px;
+    border-radius: 10px;
     color: @muted;
     background: transparent;
 }
 
 #workspaces button.active {
-    color: @bar-fg;
-    box-shadow: inset 0 -2px @accent;
+    color: @wb-act-fg;
+    background: @accent;
 }
 
 #workspaces button:hover {
@@ -36,28 +61,86 @@ window#waybar {
 
 #taskbar button {
     padding: 0 6px;
+    margin: 4px 1px;
+    border-radius: 10px;
     background: transparent;
 }
 
 #taskbar button.active {
-    box-shadow: inset 0 -2px @accent;
+    background: @module-bg;
 }
 
+#taskbar button:hover {
+    background: @wb-hvr-bg;
+}
+
+/* Every status module gets the same pill. Listed one per line because waybar
+ * takes the CSS id from the module name with `/` turned into `-`, so these are
+ * not guessable from the config and are worth being able to read down. */
+#mpris,
 #clock,
+#privacy,
+#idle_inhibitor,
+#custom-swaync,
+#bluetooth,
 #pulseaudio,
 #network,
+#temperature,
 #cpu,
 #memory,
+#power-profiles-daemon,
 #battery,
 #tray {
     padding: 0 10px;
+    margin: 4px 2px;
+    border-radius: 10px;
+    background: @module-bg;
 }
 
 #clock {
     font-weight: bold;
 }
 
+/* mpris renders nothing when no player is running. Without this it would still
+ * draw an empty pill, so the padding goes away with the content. */
+#mpris {
+    padding: 0;
+    background: transparent;
+}
+
+#mpris.playing,
+#mpris.paused {
+    padding: 0 10px;
+    background: @module-bg;
+}
+
+/* Same reasoning: privacy is only present while something is capturing. */
+#privacy {
+    padding: 0;
+    background: transparent;
+}
+
+#privacy-item {
+    padding: 0 8px;
+    margin: 4px 2px;
+    border-radius: 10px;
+    background: @module-bg;
+    color: @warning;
+}
+
+/* States. These recolour the text inside the pill rather than the pill, so a
+ * warning cannot make a module unreadable against its own background. */
 #battery.warning  { color: @warning; }
 #battery.critical { color: @critical; }
+#temperature.critical { color: @critical; }
 #network.disconnected { color: @critical; }
 #pulseaudio.muted { color: @muted; }
+#idle_inhibitor.activated { color: @accent; }
+#custom-swaync.notification { color: @accent; }
+#custom-swaync.dnd-none,
+#custom-swaync.dnd-notification { color: @muted; }
+
+/* No `#tray:empty` rule to hide the pill when nothing is in the tray: GTK's
+ * CSS has no :empty pseudo-class and rejects the whole stylesheet for it,
+ * which is fatal rather than cosmetic. waybar exits and the bar never appears.
+ */

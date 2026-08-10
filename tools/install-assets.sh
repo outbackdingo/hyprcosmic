@@ -83,11 +83,20 @@ SESSION=(
     "cosmic-session/data/hyprcosmic.desktop:share/wayland-sessions/hyprcosmic.desktop:644"
 )
 
+# Files under config/ that produce a SHARED file rather than being one. They are
+# inputs to a generator and have no place on the system: installing the template
+# would put a file full of @@TOKEN@@ placeholders next to the real config, and
+# whichever one a future reader opened first would be a coin toss.
+SOURCES=(
+    "config/waybar/config.jsonc.in"       # -> config/waybar/config.jsonc
+    "config/waybar/generate-config.py"    # the generator, and the icon table
+)
+
 # Files under config/ that are deliberately NOT installed here, each with the
 # thing that does install it. This list is not decoration: the audit below
 # refuses to run unless every file under config/ appears in exactly one of the
-# two lists, so adding a file forces a decision about where it belongs instead
-# of letting it be quietly left out of both.
+# three lists, so adding a file forces a decision about where it belongs instead
+# of letting it be quietly left out of all of them.
 PER_USER=(
     "config/autostart"           # ~/.config/hyprcosmic/autostart, by hand
     "config/cosmic.conf"         # ~/.config/hyprcosmic/cosmic.conf, by hand
@@ -96,7 +105,7 @@ PER_USER=(
 )
 
 audit_config_tree() {
-    local f rel known=" ${PER_USER[*]} " unclassified=()
+    local f rel known=" ${PER_USER[*]} ${SOURCES[*]} " unclassified=()
     # Built with a loop, not `${SHARED[*]%%:*}`: that form strips the suffix
     # from the first element only and silently keeps the rest whole.
     for f in "${SHARED[@]}"; do known+="${f%%:*} "; done

@@ -89,11 +89,11 @@
         "dynamic-separator": "  ",
         "max-length": 40,
         "interval": 1,
-        "player-icons": { "default": "\uf001" },
+        "player-icons": { "default": "@@NOTE@@" },
         "status-icons": {
-            "playing": "\uf04b",
-            "paused": "\uf04c",
-            "stopped": "\uf04d"
+            "playing": "@@PLAY@@",
+            "paused": "@@PAUSE@@",
+            "stopped": "@@STOP@@"
         },
         "on-click": "playerctl play-pause",
         "on-click-middle": "playerctl previous",
@@ -122,8 +122,8 @@
     "idle_inhibitor": {
         "format": "{icon}",
         "format-icons": {
-            "activated": "\udb80\udd76",
-            "deactivated": "\udb81\udeca"
+            "activated": "@@CAFFEINE_ON@@",
+            "deactivated": "@@CAFFEINE_OFF@@"
         },
         "tooltip-format-activated": "Caffeine on -- idling and blanking suppressed",
         "tooltip-format-deactivated": "Caffeine off -- normal power settings apply"
@@ -140,14 +140,14 @@
     "custom/swaync": {
         "format": "{icon}",
         "format-icons": {
-            "none": "\uf0f3",
-            "notification": "\udb80\udc9a",
-            "dnd-none": "\uf1f6",
-            "dnd-notification": "\uf1f6",
-            "inhibited-none": "\uf0f3",
-            "inhibited-notification": "\udb80\udc9a",
-            "dnd-inhibited-none": "\uf1f6",
-            "dnd-inhibited-notification": "\uf1f6"
+            "none": "@@BELL@@",
+            "notification": "@@BELL_DOT@@",
+            "dnd-none": "@@BELL_OFF@@",
+            "dnd-notification": "@@BELL_OFF@@",
+            "inhibited-none": "@@BELL@@",
+            "inhibited-notification": "@@BELL_DOT@@",
+            "dnd-inhibited-none": "@@BELL_OFF@@",
+            "dnd-inhibited-notification": "@@BELL_OFF@@"
         },
         "return-type": "json",
         "exec": "swaync-client -swb",
@@ -161,10 +161,10 @@
     // settings page rather than blueman or overskride, neither of which is
     // installed here.
     "bluetooth": {
-        "format": "\uf293",
-        "format-disabled": "\uf294",
-        "format-off": "\udb80\udcb2",
-        "format-connected": "\uf293 {num_connections}",
+        "format": "@@BT_ON@@",
+        "format-disabled": "@@BT_DISABLED@@",
+        "format-off": "@@BT_OFF@@",
+        "format-connected": "@@BT_ON@@ {num_connections}",
         "tooltip-format": "{controller_alias}\n{num_connections} connected",
         "tooltip-format-connected": "{controller_alias}\n\n{device_enumerate}",
         "tooltip-format-enumerate-connected": "{device_alias}",
@@ -177,16 +177,16 @@
     // helper -- waybar changes volume itself and wpctl comes with pipewire.
     "pulseaudio": {
         "format": "{icon} {volume}%",
-        "format-muted": "\udb81\udf5f",
+        "format-muted": "@@VOL_MUTE@@",
         "format-bluetooth": "{icon} {volume}%",
-        "format-bluetooth-muted": "\udb81\udf5f",
+        "format-bluetooth-muted": "@@VOL_MUTE@@",
         "format-icons": {
-            "headphone": "\uf025",
-            "headset": "\uf025",
-            "hands-free": "\uf025",
-            "phone": "\uf095",
-            "car": "\uf1b9",
-            "default": ["\uf026", "\uf027", "\uf028"]
+            "headphone": "@@VOL_HEADPHONE@@",
+            "headset": "@@VOL_HEADSET@@",
+            "hands-free": "@@VOL_HANDSFREE@@",
+            "phone": "@@VOL_PHONE@@",
+            "car": "@@VOL_CAR@@",
+            "default": ["@@VOL_LO@@", "@@VOL_MID@@", "@@VOL_HI@@"]
         },
         "scroll-step": 5,
         "tooltip-format": "{desc}\n{icon} {volume}%",
@@ -195,10 +195,10 @@
     },
 
     "network": {
-        "format-wifi": "\uf1eb {signalStrength}%",
-        "format-ethernet": "\udb80\ude00 wired",
-        "format-linked": "\udb80\ude00 {ifname}",
-        "format-disconnected": "\udb82\udd2f offline",
+        "format-wifi": "@@WIFI@@ {signalStrength}%",
+        "format-ethernet": "@@ETH@@ wired",
+        "format-linked": "@@ETH@@ {ifname}",
+        "format-disconnected": "@@NET_OFF@@ offline",
         "tooltip-format": "{ifname}: {ipaddr}",
         "tooltip-format-wifi": "{essid} ({signalStrength}%)\n{ifname}: {ipaddr}",
         "on-click": "cosmic-settings network"
@@ -213,19 +213,19 @@
     "temperature": {
         "hwmon-path-abs": "/sys/devices/pci0000:00/0000:00:18.3/hwmon",
         "input-filename": "temp1_input",
-        "format": "\uf2ca {temperatureC} C",
+        "format": "@@TEMP@@ {temperatureC} C",
         "critical-threshold": 90,
         "interval": 5,
         "tooltip-format": "CPU package: {temperatureC} C"
     },
 
     "cpu": {
-        "format": "\udb80\udf5b {usage}%",
+        "format": "@@CPU@@ {usage}%",
         "interval": 5
     },
 
     "memory": {
-        "format": "\udb83\udee0 {percentage}%",
+        "format": "@@MEM@@ {percentage}%",
         "interval": 5,
         "tooltip-format": "{used:0.1f}G of {total:0.1f}G"
     },
@@ -234,10 +234,10 @@
     "power-profiles-daemon": {
         "format": "{icon}",
         "format-icons": {
-            "default": "\uf0e7",
-            "performance": "\uf135",
-            "balanced": "\uf24e",
-            "power-saver": "\uf06c"
+            "default": "@@PROFILE@@",
+            "performance": "@@PERF@@",
+            "balanced": "@@BALANCED@@",
+            "power-saver": "@@SAVER@@"
         },
         "tooltip-format": "power profile: {profile}",
         "tooltip": true
@@ -246,20 +246,20 @@
     "battery": {
         "states": { "warning": 30, "critical": 15 },
         "format": "{icon} {capacity}%",
-        "format-charging": "\uf1e6 {capacity}%",
-        "format-plugged": "\uf1e6 {capacity}%",
+        "format-charging": "@@PLUG@@ {capacity}%",
+        "format-plugged": "@@PLUG@@ {capacity}%",
         "format-icons": [
-            "\udb80\udc8e",
-            "\udb80\udc7a",
-            "\udb80\udc7b",
-            "\udb80\udc7c",
-            "\udb80\udc7d",
-            "\udb80\udc7e",
-            "\udb80\udc7f",
-            "\udb80\udc80",
-            "\udb80\udc81",
-            "\udb80\udc82",
-            "\udb80\udc79"
+            "@@BAT_00@@",
+            "@@BAT_10@@",
+            "@@BAT_20@@",
+            "@@BAT_30@@",
+            "@@BAT_40@@",
+            "@@BAT_50@@",
+            "@@BAT_60@@",
+            "@@BAT_70@@",
+            "@@BAT_80@@",
+            "@@BAT_90@@",
+            "@@BAT_100@@"
         ],
         "tooltip-format": "{timeTo}\n{power:0.1f}W",
         "on-click": "cosmic-settings power"
