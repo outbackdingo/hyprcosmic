@@ -300,7 +300,10 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(binds, vec!["SUPER, Return, spawn, kitty", "SUPER, Q, close"]);
+        assert_eq!(
+            binds,
+            vec!["SUPER, Return, spawn, kitty", "SUPER, Q, close"]
+        );
     }
 
     #[test]
@@ -332,7 +335,11 @@ mod tests {
     #[test]
     fn rejects_line_without_equals() {
         let err = parse("this is not valid\n").unwrap_err();
-        assert!(err.message.contains("expected `key = value`"), "{}", err.message);
+        assert!(
+            err.message.contains("expected `key = value`"),
+            "{}",
+            err.message
+        );
         assert_eq!(err.span.line, 1);
     }
 }

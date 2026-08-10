@@ -65,13 +65,19 @@ fn write_raw_link(header: &mut tar::Header, target: &str) {
 }
 
 /// A theme directory just complete enough for `plan` to consider the archive.
-fn theme_with_archive(entries: &[(&str, tar::EntryType, &[u8], Option<&str>)]) -> (TempDir, PathBuf, PathBuf) {
+fn theme_with_archive(
+    entries: &[(&str, tar::EntryType, &[u8], Option<&str>)],
+) -> (TempDir, PathBuf, PathBuf) {
     let tmp = TempDir::new().unwrap();
     let theme_dir = tmp.path().join("Configs/.config/hyde/themes/Evil");
     let source_dir = tmp.path().join("Source");
     fs::create_dir_all(&theme_dir).unwrap();
     fs::create_dir_all(&source_dir).unwrap();
-    fs::write(theme_dir.join("hypr.theme"), "general {\n    gaps_in = 3\n}\n").unwrap();
+    fs::write(
+        theme_dir.join("hypr.theme"),
+        "general {\n    gaps_in = 3\n}\n",
+    )
+    .unwrap();
 
     hostile_tarball(&source_dir.join("Gtk_Evil.tar.gz"), entries);
     (tmp, theme_dir, source_dir)

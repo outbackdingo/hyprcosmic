@@ -72,9 +72,15 @@ impl CornerRadii {
 pub enum EmitError {
     Io(io::Error),
     /// A projected target whose composite shape this emitter cannot rebuild.
-    UnsupportedComposite { key: String, detail: String },
+    UnsupportedComposite {
+        key: String,
+        detail: String,
+    },
     /// An existing file could not be parsed, so read-modify-write is unsafe.
-    Unreadable { path: PathBuf, detail: String },
+    Unreadable {
+        path: PathBuf,
+        detail: String,
+    },
     NoConfigDirectory,
 }
 
@@ -293,10 +299,12 @@ fn composite(
         // default (0, 8) — theme.rs:939.
         "gaps" => {
             let (mut outer, mut inner) = match previous {
-                Some(text) => ron::from_str::<(u32, u32)>(text).map_err(|e| EmitError::Unreadable {
-                    path: path.to_path_buf(),
-                    detail: e.to_string(),
-                })?,
+                Some(text) => {
+                    ron::from_str::<(u32, u32)>(text).map_err(|e| EmitError::Unreadable {
+                        path: path.to_path_buf(),
+                        detail: e.to_string(),
+                    })?
+                }
                 None => (0, 8),
             };
 
@@ -398,7 +406,10 @@ mod tests {
         let e = Emitter::with_root(tmp.path());
         e.apply(&planned).unwrap();
 
-        assert_eq!(read(tmp.path(), "com.system76.CosmicComp", "autotile"), "true");
+        assert_eq!(
+            read(tmp.path(), "com.system76.CosmicComp", "autotile"),
+            "true"
+        );
     }
 
     #[test]
@@ -411,7 +422,10 @@ mod tests {
 
         let root = tmp.path();
         assert_eq!(read(root, "com.system76.CosmicComp", "autotile"), "true");
-        assert_eq!(read(root, "com.system76.CosmicComp", "edge_snap_threshold"), "12");
+        assert_eq!(
+            read(root, "com.system76.CosmicComp", "edge_snap_threshold"),
+            "12"
+        );
         assert_eq!(
             read(root, "com.system76.CosmicTk", "icon_theme"),
             "\"Tela-circle-dracula\""
@@ -423,7 +437,8 @@ mod tests {
     #[test]
     fn both_gaps_reach_disk_in_one_tuple() {
         let tmp = TempDir::new().unwrap();
-        let planned = plan_for("general {\n  gaps_in = 3\n  gaps_out = 8\n}\n", tmp.path()).unwrap();
+        let planned =
+            plan_for("general {\n  gaps_in = 3\n  gaps_out = 8\n}\n", tmp.path()).unwrap();
         Emitter::with_root(tmp.path()).apply(&planned).unwrap();
 
         // (outer, inner) — theme.rs:895
@@ -480,10 +495,16 @@ mod tests {
 
         let b = "com.system76.CosmicTheme.Dark.Builder";
         // Option<Srgb>: three components, no alpha.
-        assert_eq!(read(tmp.path(), b, "accent"), "Some((red: 1.0, green: 0.0, blue: 0.0))");
+        assert_eq!(
+            read(tmp.path(), b, "accent"),
+            "Some((red: 1.0, green: 0.0, blue: 0.0))"
+        );
         // Option<Srgba>: four.
         let bg = read(tmp.path(), b, "bg_color");
-        assert!(bg.starts_with("Some((red: 0.0, green: 1.0, blue: 0.0, alpha: "), "{bg}");
+        assert!(
+            bg.starts_with("Some((red: 0.0, green: 1.0, blue: 0.0, alpha: "),
+            "{bg}"
+        );
     }
 
     #[test]
@@ -492,7 +513,11 @@ mod tests {
         let planned = plan_for("decoration {\n  rounding = 10\n}\n", tmp.path()).unwrap();
         Emitter::with_root(tmp.path()).apply(&planned).unwrap();
 
-        let text = read(tmp.path(), "com.system76.CosmicTheme.Dark.Builder", "corner_radii");
+        let text = read(
+            tmp.path(),
+            "com.system76.CosmicTheme.Dark.Builder",
+            "corner_radii",
+        );
         let radii: CornerRadii = ron::from_str(&text).expect("round-trips as CornerRadii");
         assert_eq!(radii.radius_m, [10.0; 4]);
     }
@@ -504,7 +529,11 @@ mod tests {
         let planned = plan_for("decoration {\n  rounding = 10\n}\n", tmp.path()).unwrap();
         Emitter::with_root(tmp.path()).apply(&planned).unwrap();
 
-        let text = read(tmp.path(), "com.system76.CosmicTheme.Dark.Builder", "corner_radii");
+        let text = read(
+            tmp.path(),
+            "com.system76.CosmicTheme.Dark.Builder",
+            "corner_radii",
+        );
         let radii: CornerRadii = ron::from_str(&text).unwrap();
         let d = CornerRadii::default();
         assert_eq!(radii.radius_0, d.radius_0);
@@ -544,10 +573,13 @@ mod tests {
         };
         let tmp = TempDir::new().unwrap();
         let e = Emitter::with_root(tmp.path());
-        let res = e.plan(&Resolved { writes: vec![write] });
-        assert!(
-            matches!(res.unwrap_err()[0], EmitError::UnsupportedComposite { .. }),
-        );
+        let res = e.plan(&Resolved {
+            writes: vec![write],
+        });
+        assert!(matches!(
+            res.unwrap_err()[0],
+            EmitError::UnsupportedComposite { .. }
+        ),);
     }
 
     #[test]
@@ -561,7 +593,11 @@ mod tests {
         fs::write(dir.join("gaps"), "not ron at all").unwrap();
 
         let errs = plan_for("general {\n  gaps_in = 3\n}\n", tmp.path()).unwrap_err();
-        assert!(matches!(errs[0], EmitError::Unreadable { .. }), "{:?}", errs[0]);
+        assert!(
+            matches!(errs[0], EmitError::Unreadable { .. }),
+            "{:?}",
+            errs[0]
+        );
     }
 
     /// Planning must not touch disk — that is what makes emission transactional.
@@ -613,7 +649,10 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.starts_with(".atomicwrite"))
             .collect();
-        assert!(leftovers.is_empty(), "temp files left behind: {leftovers:?}");
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
     }
 
     #[test]

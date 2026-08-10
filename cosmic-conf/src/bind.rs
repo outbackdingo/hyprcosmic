@@ -92,7 +92,12 @@ fn parse_modifiers(raw: &str, span: Span) -> Result<Vec<&'static str>, BindError
         ));
     }
 
-    found.sort_by_key(|m| MODIFIER_ORDER.iter().position(|o| o == m).unwrap_or(usize::MAX));
+    found.sort_by_key(|m| {
+        MODIFIER_ORDER
+            .iter()
+            .position(|o| o == m)
+            .unwrap_or(usize::MAX)
+    });
     Ok(found)
 }
 
@@ -179,7 +184,10 @@ fn workspace_index(arg: &str, span: Span, dispatcher: &str) -> Result<u8, BindEr
     arg.trim().parse::<u8>().map_err(|_| {
         err(
             span,
-            format!("`{dispatcher}` needs a workspace number, got `{}`", arg.trim()),
+            format!(
+                "`{dispatcher}` needs a workspace number, got `{}`",
+                arg.trim()
+            ),
             Some("COSMIC addresses workspaces 1-255 by index"),
         )
     })
@@ -342,19 +350,33 @@ mod tests {
         // COSMIC's defaults bind bare Super to the launcher this way.
         let b = bind("SUPER, , exec, rofi -show drun");
         assert_eq!(b.key, None);
-        assert_eq!(render(&[b]), "{\n    (modifiers: [Super]): Spawn(\"rofi -show drun\"),\n}\n");
+        assert_eq!(
+            render(&[b]),
+            "{\n    (modifiers: [Super]): Spawn(\"rofi -show drun\"),\n}\n"
+        );
     }
 
     #[test]
     fn keys_normalise_to_xkb_spelling() {
         assert_eq!(bind("SUPER, Q, killactive").key.as_deref(), Some("q"));
-        assert_eq!(bind("SUPER, Return, killactive").key.as_deref(), Some("Return"));
-        assert_eq!(bind("SUPER, enter, killactive").key.as_deref(), Some("Return"));
+        assert_eq!(
+            bind("SUPER, Return, killactive").key.as_deref(),
+            Some("Return")
+        );
+        assert_eq!(
+            bind("SUPER, enter, killactive").key.as_deref(),
+            Some("Return")
+        );
         assert_eq!(bind("SUPER, f5, killactive").key.as_deref(), Some("F5"));
-        assert_eq!(bind("SUPER, slash, killactive").key.as_deref(), Some("slash"));
+        assert_eq!(
+            bind("SUPER, slash, killactive").key.as_deref(),
+            Some("slash")
+        );
         // Unknown names pass through so exact keysyms stay usable.
         assert_eq!(
-            bind("SUPER, XF86AudioRaiseVolume, killactive").key.as_deref(),
+            bind("SUPER, XF86AudioRaiseVolume, killactive")
+                .key
+                .as_deref(),
             Some("XF86AudioRaiseVolume")
         );
     }
@@ -381,7 +403,10 @@ mod tests {
         assert_eq!(bind("SUPER, Q, killactive").action, "Close");
         assert_eq!(bind("SUPER, F, fullscreen").action, "Fullscreen");
         assert_eq!(bind("SUPER, left, movefocus, l").action, "Focus(Left)");
-        assert_eq!(bind("SUPER SHIFT, left, movewindow, l").action, "Move(Left)");
+        assert_eq!(
+            bind("SUPER SHIFT, left, movewindow, l").action,
+            "Move(Left)"
+        );
         assert_eq!(bind("SUPER, 1, workspace, 1").action, "Workspace(1)");
         assert_eq!(
             bind("SUPER SHIFT, 1, movetoworkspace, 1").action,

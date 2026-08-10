@@ -114,8 +114,16 @@ macro_rules! both_themes {
 macro_rules! both_themes_direct {
     ($key:literal) => {
         &[
-            Target::Direct { component: DARK_BUILDER, version: 1, key: $key },
-            Target::Direct { component: LIGHT_BUILDER, version: 1, key: $key },
+            Target::Direct {
+                component: DARK_BUILDER,
+                version: 1,
+                key: $key,
+            },
+            Target::Direct {
+                component: LIGHT_BUILDER,
+                version: 1,
+                key: $key,
+            },
         ]
     };
 }
@@ -126,14 +134,20 @@ pub const REGISTRY: &[Entry] = &[
         conf: "general.gaps_in",
         targets: both_themes!("gaps", &[GAPS_INNER_IDX]),
         ty: Ty::U32,
-        validate: Some(Range { min: 0.0, max: 128.0 }),
+        validate: Some(Range {
+            min: 0.0,
+            max: 128.0,
+        }),
         doc: "Gap between adjacent tiled windows, in px",
     },
     Entry {
         conf: "general.gaps_out",
         targets: both_themes!("gaps", &[GAPS_OUTER_IDX]),
         ty: Ty::U32,
-        validate: Some(Range { min: 0.0, max: 256.0 }),
+        validate: Some(Range {
+            min: 0.0,
+            max: 256.0,
+        }),
         doc: "Gap between tiled windows and the screen edge, in px",
     },
     Entry {
@@ -177,7 +191,10 @@ pub const REGISTRY: &[Entry] = &[
             key: "focus_follows_cursor_delay",
         }],
         ty: Ty::U32,
-        validate: Some(Range { min: 0.0, max: 5000.0 }),
+        validate: Some(Range {
+            min: 0.0,
+            max: 5000.0,
+        }),
         doc: "Delay in ms before focus follows the cursor",
     },
     Entry {
@@ -199,7 +216,10 @@ pub const REGISTRY: &[Entry] = &[
             key: "edge_snap_threshold",
         }],
         ty: Ty::U32,
-        validate: Some(Range { min: 0.0, max: 256.0 }),
+        validate: Some(Range {
+            min: 0.0,
+            max: 256.0,
+        }),
         doc: "Distance in px at which windows snap to output edges",
     },
     // ---- decoration ------------------------------------------------------
@@ -207,7 +227,10 @@ pub const REGISTRY: &[Entry] = &[
         conf: "decoration.rounding",
         targets: both_themes!("corner_radii", &["radius_m"]),
         ty: Ty::F32,
-        validate: Some(Range { min: 0.0, max: 64.0 }),
+        validate: Some(Range {
+            min: 0.0,
+            max: 64.0,
+        }),
         doc: "Window corner radius in px (maps to the theme's radius_m)",
     },
     // ---- theme -----------------------------------------------------------

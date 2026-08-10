@@ -25,7 +25,10 @@ pub use resolve::{resolve, Diagnostic, Resolved, Value, Write, WriteKind};
 
 /// Render a diagnostic against source text, cargo-style.
 pub fn render_diagnostic(source: &str, span: Span, message: &str, help: Option<&str>) -> String {
-    let line = source.lines().nth(span.line.saturating_sub(1)).unwrap_or("");
+    let line = source
+        .lines()
+        .nth(span.line.saturating_sub(1))
+        .unwrap_or("");
     let gutter = span.line.to_string().len();
     let pad = " ".repeat(gutter);
     let caret = " ".repeat(span.col.saturating_sub(1)) + &"^".repeat(span.len.max(1));
@@ -72,7 +75,11 @@ theme {
         // gaps fold per builder; accent fans out to both; autotile is direct.
         let gaps: Vec<_> = r.writes.iter().filter(|w| w.target.key == "gaps").collect();
         assert_eq!(gaps.len(), 2);
-        let accent: Vec<_> = r.writes.iter().filter(|w| w.target.key == "accent").collect();
+        let accent: Vec<_> = r
+            .writes
+            .iter()
+            .filter(|w| w.target.key == "accent")
+            .collect();
         assert_eq!(accent.len(), 2);
     }
 
@@ -81,7 +88,12 @@ theme {
         let src = "general {\n    gaps_inn = 8\n}\n";
         let ast = parse(src).unwrap();
         let diags = resolve(&ast).unwrap_err();
-        let out = render_diagnostic(src, diags[0].span, &diags[0].message, diags[0].help.as_deref());
+        let out = render_diagnostic(
+            src,
+            diags[0].span,
+            &diags[0].message,
+            diags[0].help.as_deref(),
+        );
 
         assert!(out.contains("unknown key"), "{out}");
         assert!(out.contains("cosmic.conf:2:5"), "{out}");

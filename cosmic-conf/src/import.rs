@@ -70,7 +70,8 @@ fn strip_hyde_header(src: &str) -> &str {
     let Some(first) = lines.next() else {
         return src;
     };
-    let is_destination_header = !first.contains('=') && (first.contains("|>") || first.contains('|'));
+    let is_destination_header =
+        !first.contains('=') && (first.contains("|>") || first.contains('|'));
     if is_destination_header {
         // Preserve line numbering by keeping the newline count intact: callers
         // report spans against the stripped text, so re-add a blank line.
@@ -105,7 +106,12 @@ fn is_gradient(value: &str) -> bool {
 
 /// Flatten to dotted keys, keeping variables separate — HyDE carries
 /// `$GTK_THEME` / `$ICON_THEME` as variables rather than config keys.
-fn walk(items: &[Item], prefix: &str, out: &mut Vec<(String, String, Span)>, vars: &mut Vec<(String, String, Span)>) {
+fn walk(
+    items: &[Item],
+    prefix: &str,
+    out: &mut Vec<(String, String, Span)>,
+    vars: &mut Vec<(String, String, Span)>,
+) {
     for item in items {
         match item {
             Item::Section { name, items } => {
@@ -150,7 +156,11 @@ pub fn import_hypr_theme(src: &str, theme_name: &str) -> Result<Import, ParseErr
         match name.as_str() {
             "ICON_THEME" => theme.push(("icon_theme".into(), value.clone())),
             "COLOR_SCHEME" => {
-                let mode = if value.contains("light") { "light" } else { "dark" };
+                let mode = if value.contains("light") {
+                    "light"
+                } else {
+                    "dark"
+                };
                 theme.push(("mode".into(), mode.into()));
             }
             "GTK_THEME" => notes.push(Note {
@@ -208,14 +218,16 @@ pub fn import_hypr_theme(src: &str, theme_name: &str) -> Result<Import, ParseErr
             "general.layout" => notes.push(note(Reason::NoEquivalent(
                 "cosmic-comp uses a BSP tiler; dwindle/master are not available",
             ))),
-            "general.resize_on_border" => notes.push(note(Reason::NoEquivalent(
-                "no equivalent setting",
-            ))),
+            "general.resize_on_border" => {
+                notes.push(note(Reason::NoEquivalent("no equivalent setting")))
+            }
 
-            k if k.starts_with("decoration.blur") => notes.push(note(
-                Reason::NeedsCompositorPatch("COSMIC blur is client-requested via \
-                     ext-background-effect; rule-driven blur is spec Phase 2"),
-            )),
+            k if k.starts_with("decoration.blur") => {
+                notes.push(note(Reason::NeedsCompositorPatch(
+                    "COSMIC blur is client-requested via \
+                     ext-background-effect; rule-driven blur is spec Phase 2",
+                )))
+            }
             k if k.starts_with("decoration.shadow") => notes.push(note(
                 Reason::NeedsCompositorPatch("shadow.frag exists but is not configurable yet"),
             )),
@@ -300,7 +312,12 @@ pub fn render_report(import: &Import) -> String {
     if !lossy.is_empty() {
         out.push_str("Translated with loss:\n");
         for n in &lossy {
-            out.push_str(&format!("  {} = {}\n    {}\n", n.key, n.value, n.reason.describe()));
+            out.push_str(&format!(
+                "  {} = {}\n    {}\n",
+                n.key,
+                n.value,
+                n.reason.describe()
+            ));
         }
     }
     if !dropped.is_empty() {
@@ -309,7 +326,12 @@ pub fn render_report(import: &Import) -> String {
         }
         out.push_str("Not translated:\n");
         for n in &dropped {
-            out.push_str(&format!("  {} = {}\n    {}\n", n.key, n.value, n.reason.describe()));
+            out.push_str(&format!(
+                "  {} = {}\n    {}\n",
+                n.key,
+                n.value,
+                n.reason.describe()
+            ));
         }
     }
     out
@@ -431,7 +453,10 @@ layerrule = blur,waybar
             "group.col.border_active",
             "layerrule",
         ] {
-            assert!(keys.contains(&expected), "`{expected}` missing from {keys:?}");
+            assert!(
+                keys.contains(&expected),
+                "`{expected}` missing from {keys:?}"
+            );
         }
     }
 
