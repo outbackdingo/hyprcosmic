@@ -1,0 +1,33 @@
+/* Default colours for the HyprCosmic bar.
+ *
+ * Two name sets are defined here, and both matter:
+ *
+ *   - `main-bg`, `wb-act-bg` and friends are HyDE's names. A HyDE theme's
+ *     waybar.theme is nothing but a list of these, so defining them here means
+ *     a theme file can override them by being imported after this one.
+ *   - `bar-bg`, `accent` and friends are the names rules.css actually uses.
+ *
+ * bridge-hyde.css maps the first set onto the second. Defining HyDE's names
+ * here as well is what makes a missing theme file harmless: the bridge always
+ * has something to resolve against, so an unthemed bar renders with these
+ * values instead of failing to parse.
+ *
+ * Values are Tokyo Night, matching cosmic-conf's own defaults.
+ */
+
+/* HyDE's names. Overridden by ~/.config/waybar/theme.css when a theme is in. */
+@define-color main-bg     #1a1b26;
+@define-color main-fg     #c0caf5;
+@define-color wb-act-bg   #7aa2f7;
+@define-color wb-act-fg   #1a1b26;
+@define-color wb-hvr-bg   #7aa2f7;
+@define-color wb-hvr-fg   #565f89;
+
+/* Names with no HyDE equivalent, so never themed and always these values. */
+@define-color warning     #e0af68;
+@define-color critical    #f7768e;
+
+/* The bar's own background. HyDE themes define this one under the same name
+ * we use, and typically as a low-alpha rgba() so the compositor's blur shows
+ * through. */
+@define-color bar-bg      rgba(26, 27, 38, 0.85);

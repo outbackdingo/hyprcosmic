@@ -1,0 +1,26 @@
+/* Map HyDE's waybar colour names onto the ones rules.css uses.
+ *
+ * Imported after both palette.css and the theme's own waybar.theme, so it sees
+ * whichever definition of each HyDE name is in force and does not care which
+ * file supplied it. This indirection is the whole reason a HyDE theme can
+ * recolour this bar without any of the rules changing.
+ */
+
+@define-color bar-fg   @main-fg;
+@define-color accent   @wb-act-bg;
+@define-color muted    @wb-hvr-fg;
+
+/* `bar-bg` IS remapped, and this is a deliberate departure from the theme.
+ *
+ * HyDE themes set bar-bg to something like rgba(0, 0, 0, 0.1) and rely on the
+ * compositor blurring whatever is behind the bar. cosmic-comp has no
+ * rule-driven blur -- `import-theme --report` lists decoration.blur.* as
+ * needing a compositor patch -- so honouring that value literally gives a
+ * ~90% transparent bar with unblurred desktop showing through and text that
+ * cannot be read.
+ *
+ * So the theme's own background colour is used at an opacity that works
+ * without blur. Delete these two lines to get the theme's literal value back,
+ * or once blur lands.
+ */
+@define-color bar-bg   alpha(@main-bg, 0.85);

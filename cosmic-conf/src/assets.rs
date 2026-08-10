@@ -158,6 +158,56 @@ pub struct Report {
     pub installed: Vec<PathBuf>,
 }
 
+impl Action {
+    pub fn kind(&self) -> AssetKind {
+        match self {
+            Action::ExtractArchive { kind, .. } | Action::CopyVerbatim { kind, .. } => *kind,
+            Action::CopyWallpaper { .. } => AssetKind::Wallpaper,
+        }
+    }
+
+    pub fn dest(&self) -> &Path {
+        match self {
+            Action::ExtractArchive { dest, .. }
+            | Action::CopyWallpaper { dest, .. }
+            | Action::CopyVerbatim { dest, .. } => dest,
+        }
+    }
+}
+
+/// What `apply` would do, for `--dry-run`.
+///
+/// Deliberately not `render_report` with a synthesised `Report`: saying
+/// "Installed:" about files that were never written is the kind of small lie
+/// that makes a tool untrustworthy.
+pub fn render_plan(plan: &Plan) -> String {
+    let mut out = String::new();
+    if plan.actions.is_empty() {
+        out.push_str("Nothing to install.\n");
+    } else {
+        out.push_str("Would install:\n");
+        for a in &plan.actions {
+            out.push_str(&format!(
+                "  {} ({})\n",
+                a.dest().display(),
+                a.kind().label()
+            ));
+        }
+    }
+    if !plan.skipped.is_empty() {
+        out.push_str("\nWould skip:\n");
+        for n in &plan.skipped {
+            out.push_str(&format!(
+                "  {} ({}): {}\n",
+                n.path.display(),
+                n.kind.label(),
+                n.reason.describe()
+            ));
+        }
+    }
+    out
+}
+
 /// Human-readable summary, in the same spirit as `import::render_report`:
 /// nothing that was skipped is left unmentioned.
 pub fn render_report(plan: &Plan, report: &Report) -> String {
@@ -482,11 +532,30 @@ fn walk_archive(archive_path: &Path, dest_root: &Path, write: bool) -> Result<Ve
 
         // A symlink/hardlink's own entry path can be safe while its target
         // still points outside `dest_root`; a later entry written "through"
-        // that link would then land wherever the link points. Same rule,
-        // applied to the target.
-        if matches!(entry.header().entry_type(), tar::EntryType::Symlink | tar::EntryType::Link) {
+        // that link would then land wherever the link points.
+        //
+        // The target cannot use the same rule as the entry path, though. Icon
+        // themes are built almost entirely out of relative symlinks pointing
+        // at sibling directories -- Tela ships thousands of
+        // `../devices/network-wireless.svg` -- so rejecting every `..` would
+        // reject every real icon theme. What matters is not whether the target
+        // contains `..` but whether it still lands inside `dest_root` once
+        // resolved, which is what `stays_within_root` decides.
+        let entry_type = entry.header().entry_type();
+        if matches!(entry_type, tar::EntryType::Symlink | tar::EntryType::Link) {
             if let Some(target) = entry.link_name()? {
-                reject_unsafe_path(archive_path, &target)?;
+                // tar resolves a symlink target against the link's own
+                // directory, but a hardlink target against the archive root.
+                let base = match entry_type {
+                    tar::EntryType::Link => Path::new(""),
+                    _ => rel.parent().unwrap_or(Path::new("")),
+                };
+                if !stays_within_root(base, &target) {
+                    return Err(AssetError::UnsafeArchiveEntry {
+                        archive: archive_path.to_path_buf(),
+                        entry: target.into_owned(),
+                    });
+                }
             }
         }
 
@@ -519,6 +588,35 @@ fn reject_unsafe_path(archive: &Path, entry: &Path) -> Result<(), AssetError> {
     Ok(())
 }
 
+/// Does `base/target` still land inside the root it started from?
+///
+/// Resolution is lexical on purpose. At plan time the destination tree does
+/// not exist yet, so `canonicalize` has nothing to work with; and following
+/// real symlinks during validation would open a TOCTOU window between the
+/// check and the extraction. Counting depth over the joined components
+/// answers the only question that matters without touching the filesystem.
+fn stays_within_root(base: &Path, target: &Path) -> bool {
+    if target.is_absolute() {
+        return false;
+    }
+    let mut depth: isize = 0;
+    for c in base.components().chain(target.components()) {
+        match c {
+            Component::Normal(_) => depth += 1,
+            Component::ParentDir => {
+                depth -= 1;
+                if depth < 0 {
+                    return false;
+                }
+            }
+            Component::CurDir => {}
+            // An absolute component anywhere replaces everything before it.
+            Component::RootDir | Component::Prefix(_) => return false,
+        }
+    }
+    true
+}
+
 /// The first path component of every entry, skipping a leading `./` — used
 /// only as a best-effort "is this archive already installed?" heuristic
 /// (real GTK/icon tarballs unpack into a single named directory), not as a
@@ -540,6 +638,52 @@ mod tests {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use tempfile::TempDir;
+
+    #[test]
+    fn a_relative_symlink_into_a_sibling_directory_is_allowed() {
+        // Regression: rejecting every `..` in a link target rejected every
+        // real icon theme. Tela ships thousands of exactly this shape, and
+        // Tokyo-Night's Icon_TelaPurple.tar.gz would not extract.
+        assert!(stays_within_root(
+            Path::new("Tela-purple-dark/16/panel"),
+            Path::new("../devices/network-wireless.svg")
+        ));
+        assert!(stays_within_root(
+            Path::new("Tela/22/apps"),
+            Path::new("../../16/apps/firefox.svg")
+        ));
+    }
+
+    #[test]
+    fn a_relative_symlink_that_climbs_past_the_root_is_still_refused() {
+        // One `..` too many is the whole attack, so the boundary is exact
+        // rather than approximate.
+        assert!(!stays_within_root(
+            Path::new("Tela/16/panel"),
+            Path::new("../../../../etc/passwd")
+        ));
+        assert!(!stays_within_root(Path::new(""), Path::new("../escape")));
+        assert!(!stays_within_root(Path::new("a"), Path::new("../../escape")));
+        // Exactly back to the root is fine; one further is not.
+        assert!(stays_within_root(Path::new("a/b"), Path::new("../../c")));
+        assert!(!stays_within_root(Path::new("a/b"), Path::new("../../../c")));
+    }
+
+    #[test]
+    fn an_absolute_symlink_target_is_refused_however_it_is_spelled() {
+        assert!(!stays_within_root(Path::new("a/b"), Path::new("/etc/passwd")));
+        assert!(!stays_within_root(Path::new("a/b"), Path::new("/")));
+    }
+
+    #[test]
+    fn detours_that_end_up_back_inside_are_allowed() {
+        // `a/b/../c` never leaves, so refusing it would be strictness with no
+        // security value.
+        assert!(stays_within_root(
+            Path::new("theme/scalable"),
+            Path::new("../scalable/./places/../apps/icon.svg")
+        ));
+    }
 
     /// Build a `.tar.gz` fixture programmatically so tests do not depend on
     /// binary blobs checked into the repo.

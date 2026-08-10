@@ -1,74 +1,32 @@
 /* Waybar styling for a HyprCosmic session.
  *
- * Deliberately plain. HyDE's own bar styling is bespoke CSS belonging to HyDE
- * rather than to any theme: a HyDE theme's waybar.theme file is only a short
- * list of @define-color declarations. So the palette below is what a theme
- * import can eventually overwrite, and the geometry is what stays put.
+ * This file is only an import list, because the order is the whole design:
  *
- * Keep every colour reference pointing at one of these names, so that dropping
- * a theme's waybar.theme in ahead of this file is enough to re-colour the bar.
+ *   1. palette.css      default colours, under both our names and HyDE's
+ *   2. theme.css        the installed HyDE theme's waybar.theme, if any
+ *   3. bridge-hyde.css  maps HyDE's colour names onto the ones the rules use
+ *   4. rules.css        geometry and layout; no colour literals at all
+ *
+ * Every entry is an @import, so they are read strictly in sequence and a later
+ * definition of a colour wins over an earlier one. That is what lets step 2
+ * recolour the bar without step 4 knowing a theme exists.
+ *
+ * Step 2 is a copy of the installed theme's waybar.theme, kept as a sibling of
+ * this file rather than read from HyDE's own ~/.config/waybar/theme.css.
+ *
+ * That copy exists because a missing @import is fatal in GTK, not a warning:
+ * pointing at HyDE's path directly means the whole stylesheet fails to load on
+ * any machine where no theme has been imported. A sibling file we create at
+ * install time is always present -- empty when there is no theme, in which
+ * case the defaults from step 1 stand. palette.css defines HyDE's names too,
+ * so the bridge in step 3 resolves either way.
+ *
+ * Consequently this file belongs at ~/.config/hyprcosmic/waybar/style.css, not
+ * under /usr/share: a relative @import resolves against the importing file,
+ * and theme.css is per-user.
  */
 
-@define-color bar-bg      rgba(26, 27, 38, 0.85);
-@define-color bar-fg      #c0caf5;
-@define-color accent      #7aa2f7;
-@define-color warning     #e0af68;
-@define-color critical    #f7768e;
-@define-color muted       #565f89;
-
-* {
-    font-family: "FontAwesome 6 Free", "Noto Sans", sans-serif;
-    font-size: 13px;
-    border: none;
-    border-radius: 0;
-    min-height: 0;
-}
-
-window#waybar {
-    background: @bar-bg;
-    color: @bar-fg;
-}
-
-#workspaces button {
-    padding: 0 8px;
-    color: @muted;
-    background: transparent;
-}
-
-#workspaces button.active {
-    color: @bar-fg;
-    box-shadow: inset 0 -2px @accent;
-}
-
-#workspaces button:hover {
-    color: @bar-fg;
-    background: rgba(122, 162, 247, 0.15);
-}
-
-#taskbar button {
-    padding: 0 6px;
-    background: transparent;
-}
-
-#taskbar button.active {
-    box-shadow: inset 0 -2px @accent;
-}
-
-#clock,
-#pulseaudio,
-#network,
-#cpu,
-#memory,
-#battery,
-#tray {
-    padding: 0 10px;
-}
-
-#clock {
-    font-weight: bold;
-}
-
-#battery.warning  { color: @warning; }
-#battery.critical { color: @critical; }
-#network.disconnected { color: @critical; }
-#pulseaudio.muted { color: @muted; }
+@import url("file:///usr/share/hyprcosmic/waybar/palette.css");
+@import url("theme.css");
+@import url("file:///usr/share/hyprcosmic/waybar/bridge-hyde.css");
+@import url("file:///usr/share/hyprcosmic/waybar/rules.css");

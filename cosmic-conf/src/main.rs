@@ -2,10 +2,10 @@
 //!
 //! Exit codes: 0 success, 1 config error (nothing written), 2 usage error.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use cosmic_conf::{emit::Emitter, import, parse, render_diagnostic, resolve};
+use cosmic_conf::{assets, emit::Emitter, import, render_diagnostic, watch};
 
 const USAGE: &str = "\
 cosmic-conf — compile cosmic.conf into the cosmic-config tree
@@ -13,14 +13,34 @@ cosmic-conf — compile cosmic.conf into the cosmic-config tree
 USAGE:
     cosmic-conf apply [--diff] [--config <path>]
     cosmic-conf import-theme <hypr.theme> [--out <path>] [--report]
+                             [--assets [--source <dir>] [--overwrite] [--dry-run]]
 
 OPTIONS:
     --diff            Show what would change without writing anything
     --config <path>   Config file (default: $XDG_CONFIG_HOME/hyprcosmic/cosmic.conf)
     --out <path>      Write the generated cosmic.conf here (default: stdout)
     --report          Print everything that did not translate cleanly
+    --assets          Also install wallpapers, GTK/icon themes and the
+                      waybar/rofi/kitty theme files that sit beside hypr.theme
+    --source <dir>    The theme repo's Source/ directory holding the GTK and
+                      icon tarballs (default: found by searching upward)
+    --overwrite       Replace assets that are already installed
+    --dry-run         With --assets, list what would be installed and stop
     -h, --help        Show this help
 ";
+
+/// HyDE keeps GTK and icon tarballs in a `Source/` directory at the root of
+/// the theme repo, four levels above the theme folder
+/// (`Configs/.config/hyde/themes/<Name>/`). Searching upward rather than
+/// hardcoding that depth means a theme unpacked at a different depth, or one
+/// vendored into another tree, still works.
+fn find_source_dir(theme_dir: &std::path::Path) -> Option<PathBuf> {
+    theme_dir
+        .ancestors()
+        .take(6)
+        .map(|a| a.join("Source"))
+        .find(|c| c.is_dir())
+}
 
 fn default_config_path() -> Option<PathBuf> {
     let base = match std::env::var_os("XDG_CONFIG_HOME") {
@@ -85,35 +105,16 @@ fn main() -> ExitCode {
 }
 
 fn run(config_path: &PathBuf, diff_only: bool) -> Result<String, String> {
-    let source = std::fs::read_to_string(config_path)
-        .map_err(|e| format!("error: cannot read {}: {e}\n", config_path.display()))?;
-
-    let ast = parse(&source).map_err(|e| {
-        render_diagnostic(&source, e.span, &e.message, None)
-    })?;
-
-    let resolved = resolve(&ast).map_err(|diags| {
-        let mut out = String::new();
-        for d in &diags {
-            out.push_str(&render_diagnostic(&source, d.span, &d.message, d.help.as_deref()));
-            out.push('\n');
-        }
-        out.push_str(&format!(
-            "error: {} problem(s) found; nothing was written\n",
-            diags.len()
-        ));
-        out
-    })?;
-
     let emitter = Emitter::from_env().map_err(|e| format!("error: {e}\n"))?;
-    let planned = emitter.plan(&resolved).map_err(|errs| {
-        let mut out = String::new();
-        for e in &errs {
-            out.push_str(&format!("error: {e}\n"));
-        }
-        out.push_str("error: nothing was written\n");
-        out
-    })?;
+
+    // Through `watch::compile` rather than parse/resolve/plan inline, because
+    // that is the only path that expands `source`. Doing it by hand here meant
+    // `resolve` never saw the included text -- `flatten` drops `Item::Source`
+    // -- so a sourced file was silently ignored by `apply` while `watch`
+    // honoured it. An include that works in one and vanishes in the other is
+    // worse than one that is unsupported in both.
+    let compiled = watch::compile(config_path, &emitter).map_err(|e| e.to_string())?;
+    let planned = compiled.planned;
 
     let changes: Vec<_> = planned.iter().filter(|p| !p.is_noop()).collect();
 
@@ -193,5 +194,56 @@ fn run_import(args: &[String]) -> Result<String, String> {
             "\n{dropped} setting(s) did not translate. Re-run with --report for details.\n"
         ));
     }
+
+    if args.iter().any(|a| a == "--assets") {
+        out.push('\n');
+        out.push_str(&install_assets(src_path, &name, args)?);
+    }
+
     Ok(out)
+}
+
+/// The half of a theme that is not config: wallpapers, GTK/icon tarballs, and
+/// the `.theme` files belonging to waybar, rofi and kitty.
+///
+/// Separate from the conf translation because it is separate in kind — none of
+/// it is translated, only placed — and because it writes outside the
+/// cosmic-config tree, which every other path in this tool does not.
+fn install_assets(src_path: &str, name: &str, args: &[String]) -> Result<String, String> {
+    let theme_dir = PathBuf::from(src_path)
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| format!("error: {src_path} has no parent directory\n"))?;
+
+    let source_dir = match args.iter().position(|a| a == "--source") {
+        Some(i) => match args.get(i + 1) {
+            Some(p) => Some(PathBuf::from(p)),
+            None => return Err(format!("error: --source needs a path\n\n{USAGE}")),
+        },
+        None => find_source_dir(&theme_dir),
+    };
+
+    let installer = assets::Installer::from_env().map_err(|e| format!("error: {e}\n"))?;
+    let plan = installer
+        .plan(
+            &theme_dir,
+            source_dir.as_deref(),
+            name,
+            args.iter().any(|a| a == "--overwrite"),
+        )
+        .map_err(|errors| {
+            errors
+                .iter()
+                .map(|e| format!("error: {e}\n"))
+                .collect::<String>()
+        })?;
+
+    if args.iter().any(|a| a == "--dry-run") {
+        return Ok(assets::render_plan(&plan));
+    }
+
+    let report = installer
+        .apply(&plan)
+        .map_err(|e| format!("error: {e}\n"))?;
+    Ok(assets::render_report(&plan, &report))
 }
