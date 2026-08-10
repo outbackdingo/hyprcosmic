@@ -46,5 +46,43 @@ waybar -c /usr/share/hyprcosmic/waybar/config.jsonc -s /home/dingo/.config/hyprc
 # Packaged in the alebastr/sway-extras COPR.
 #
 # The daemon only holds the surface -- it shows nothing until an image is set.
-# Set one once with `awww img /path/to/wallpaper` and it is remembered.
 awww-daemon
+
+# ...which is what this does. Without it the daemon runs, draws nothing, and you
+# get a blank screen below the bar with no error anywhere: the failure is that
+# nobody asked for a wallpaper, so nothing reports one missing.
+#
+# `sh -c` rather than a bare `awww img`, for one reason: awww-daemon above has
+# only just been forked and is not listening yet, so an immediate `awww img`
+# loses a race and fails silently. The loop waits for the daemon to answer
+# before setting the image.
+#
+# This does not weaken the no-shell rule in the header. That rule exists so a
+# file naming programs cannot be escalated into arbitrary execution; naming
+# `sh` explicitly is just naming a program, and anyone able to write this file
+# could already name any binary on the system.
+#
+# `current` is a symlink `cosmic-conf import-theme --assets` maintains beside
+# the wallpapers it copies, pointing at one of them. It is named here rather
+# than a real file so that this line and rofi's local.rasi -- which shows the
+# same image in the launcher's sidebar -- cannot drift apart, and so that
+# importing a different theme does not leave this pointing at a path that no
+# longer exists.
+#
+# Change the wallpaper by repointing the link, not by editing this file:
+#
+#     ln -sfn ~/".local/share/wallpapers/hyprcosmic/<theme>/<image>" \
+#             ~/.local/share/wallpapers/hyprcosmic/current
+sh -c 'until awww query >/dev/null 2>&1; do sleep 0.2; done; exec awww img "/home/dingo/.local/share/wallpapers/hyprcosmic/current"'
+
+# A terminal, unconditionally, as the way back in.
+#
+# Everything above assumes the keybindings work. If they do not -- a bad
+# `bind` line, a shortcut COSMIC declines to register, a compositor that came
+# up without input -- then there is no way to launch rofi, no way to launch a
+# terminal, and the only remaining option is a VT switch. Starting one terminal
+# at login costs a window you can close and removes that entire failure class.
+#
+# Last in the file so it is the most recently mapped window, and therefore on
+# top of anything else that opened during startup.
+cosmic-term
