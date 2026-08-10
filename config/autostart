@@ -1,0 +1,21 @@
+# Programs the HyprCosmic session starts after COSMIC's own components.
+#
+# Installed to ~/.config/hyprcosmic/autostart and read by cosmic-session's
+# profile module. One command per line. Arguments and quoting work, but this is
+# NOT a shell: no $VAR, no ~, no globs, no $(...). Paths must be absolute.
+#
+# `#` starts a comment where a word would start, so `--color=#1a1b26` is fine
+# but `--color #1a1b26` is not; quote it as '#1a1b26' if you need the latter.
+
+# The bar. Configs live under /usr/share/hyprcosmic so this file needs no
+# per-user paths; copy them into ~/.config/hyprcosmic/waybar and point here to
+# customise.
+waybar -c /usr/share/hyprcosmic/waybar/config.jsonc -s /usr/share/hyprcosmic/waybar/style.css
+
+# rofi is not a daemon. It is launched on demand by a keybinding, which COSMIC
+# stores in com.system76.CosmicSettings.Shortcuts rather than here. Until that
+# binding is set, run `rofi -show drun` from a terminal.
+
+# HyDE drives wallpaper through swww, which is not packaged for Fedora. Once
+# it is available, uncomment:
+# swww-daemon

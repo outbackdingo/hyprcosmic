@@ -1,0 +1,73 @@
+// Waybar configuration for a HyprCosmic session.
+//
+// Waybar's shipped default (/etc/xdg/waybar/config.jsonc) is built entirely
+// around sway/* modules and shows nothing at all under cosmic-comp, so this
+// exists rather than a handful of overrides.
+//
+// Module choices are constrained by what cosmic-comp actually advertises on the
+// Wayland registry, which was checked against a live session:
+//
+//   ext/workspaces  ext_workspace_manager_v1 -- advertised by stock cosmic-comp.
+//   wlr/taskbar     zwlr_foreign_toplevel_management_v1 -- NOT in stock
+//                   cosmic-comp; provided by the HyprCosmic fork's Patch A.
+//                   Under a stock compositor this module stays empty and the
+//                   rest of the bar still works.
+//   tray            Needs a StatusNotifierWatcher. cosmic-panel normally
+//                   supplies one via cosmic-applet-status-area, and the
+//                   hyprcosmic profile disables the panel, so waybar hosts the
+//                   watcher itself here.
+{
+    "layer": "top",
+    "position": "top",
+    "height": 34,
+    "spacing": 6,
+
+    "modules-left": ["ext/workspaces", "wlr/taskbar"],
+    "modules-center": ["clock"],
+    "modules-right": ["pulseaudio", "network", "cpu", "memory", "battery", "tray"],
+
+    "ext/workspaces": {
+        "format": "{name}",
+        "on-click": "activate"
+    },
+
+    "wlr/taskbar": {
+        "format": "{icon}",
+        "icon-size": 18,
+        "tooltip-format": "{title}",
+        "on-click": "activate",
+        "on-click-middle": "close"
+    },
+
+    "clock": {
+        "format": "{:%a %d %b  %H:%M}",
+        "tooltip-format": "<tt><small>{calendar}</small></tt>"
+    },
+
+    "pulseaudio": {
+        "format": "{icon} {volume}%",
+        "format-muted": "muted",
+        "format-icons": { "default": ["", "", ""] },
+        "on-click": "pavucontrol"
+    },
+
+    "network": {
+        "format-wifi": "  {signalStrength}%",
+        "format-ethernet": "  wired",
+        "format-disconnected": "  offline",
+        "tooltip-format": "{ifname}: {ipaddr}"
+    },
+
+    "cpu": { "format": "  {usage}%", "interval": 5 },
+    "memory": { "format": "  {percentage}%", "interval": 5 },
+
+    "battery": {
+        "states": { "warning": 30, "critical": 15 },
+        "format": "{icon} {capacity}%",
+        "format-charging": "  {capacity}%",
+        "format-plugged": "  {capacity}%",
+        "format-icons": ["", "", "", "", ""]
+    },
+
+    "tray": { "icon-size": 18, "spacing": 8 }
+}
