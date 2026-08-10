@@ -18,6 +18,15 @@ pub enum Ty {
     Rgba,
     /// `dark`/`light` -> the `is_dark` boolean.
     Mode,
+    /// Hyprland's `input:follow_mouse`, `0`-`3` -> `focus_follows_cursor`.
+    ///
+    /// COSMIC's setting is a plain boolean, so only `0` and `1` have a meaning
+    /// here. Hyprland's `2` and `3` split pointer focus from keyboard focus,
+    /// which cosmic-comp cannot express -- it has one focus and moves it or
+    /// does not. They are rejected rather than rounded to `1`: silently
+    /// granting click-to-focus to someone who asked for the opposite is worse
+    /// than telling them the setting does not exist here.
+    FollowMouse,
 }
 
 /// Where a conf key's value lands in the cosmic-config tree.
@@ -244,6 +253,46 @@ pub const REGISTRY: &[Entry] = &[
         }),
         doc: "Window corner radius in px (maps to the theme's radius_m)",
     },
+    // ---- input -----------------------------------------------------------
+    //
+    // Aliases, not new settings: both of these land on the same cosmic-config
+    // keys as `general.focus_follows_cursor` and its delay, which stay for
+    // anyone who prefers COSMIC's own naming. They exist because Hyprland puts
+    // this in `input` under a different name, and accepting the Hyprland
+    // spelling is the point of the fork.
+    //
+    // Two spellings writing one target is safe here only because the last
+    // assignment wins: setting both in one file is not an error, it just means
+    // whichever comes last is what the compositor gets. That is the same rule
+    // the rest of the file follows, so it needs no special handling.
+    Entry {
+        conf: "input.follow_mouse",
+        targets: &[Target::Direct {
+            component: COMP,
+            version: 1,
+            key: "focus_follows_cursor",
+        }],
+        ty: Ty::FollowMouse,
+        // No `Range`: `check_range` only inspects numeric values and this
+        // resolves to a bool, so a range here would be silently ignored. The
+        // accepted values are enforced by `Ty::FollowMouse` itself.
+        validate: None,
+        doc: "1 for focus follows mouse, 0 for click to focus",
+    },
+    Entry {
+        conf: "input.follow_mouse_delay",
+        targets: &[Target::Direct {
+            component: COMP,
+            version: 1,
+            key: "focus_follows_cursor_delay",
+        }],
+        ty: Ty::U32,
+        validate: Some(Range {
+            min: 0.0,
+            max: 5000.0,
+        }),
+        doc: "Delay in ms before focus follows the mouse",
+    },
     // ---- theme -----------------------------------------------------------
     Entry {
         conf: "theme.mode",
@@ -380,6 +429,39 @@ mod tests {
         assert_eq!(e.targets.len(), 1);
         assert_eq!(e.targets[0].component(), "com.system76.CosmicComp");
         assert!(matches!(e.ty, Ty::Bool));
+    }
+
+    /// `input.*` is an alias layer, so what matters is that it points at the
+    /// same place COSMIC's own naming does. If a rebase renames either target
+    /// key, one spelling would keep working and the other would go quietly
+    /// dead; pinning them together here makes that a test failure instead.
+    #[test]
+    fn the_input_section_aliases_the_general_focus_keys() {
+        for (hypr, cosmic) in [
+            ("input.follow_mouse", "general.focus_follows_cursor"),
+            (
+                "input.follow_mouse_delay",
+                "general.focus_follows_cursor_delay",
+            ),
+        ] {
+            let a = lookup(hypr).unwrap();
+            let b = lookup(cosmic).unwrap();
+            assert_eq!(a.targets, b.targets, "{hypr} and {cosmic} have drifted");
+        }
+    }
+
+    /// The alias is not a plain bool: Hyprland writes it as a number, and
+    /// `Ty::FollowMouse` is what turns the accepted numbers into one.
+    #[test]
+    fn follow_mouse_uses_the_hyprland_numeric_type() {
+        assert!(matches!(
+            lookup("input.follow_mouse").unwrap().ty,
+            Ty::FollowMouse
+        ));
+        assert!(matches!(
+            lookup("general.focus_follows_cursor").unwrap().ty,
+            Ty::Bool
+        ));
     }
 
     #[test]

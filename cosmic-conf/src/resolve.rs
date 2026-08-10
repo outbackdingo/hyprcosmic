@@ -211,6 +211,23 @@ fn coerce(raw: &str, ty: Ty, span: Span) -> Result<Value, Diagnostic> {
             "light" => Ok(Value::Bool(false)),
             _ => Err(bad("`dark` or `light`")),
         },
+        Ty::FollowMouse => match raw {
+            "0" => Ok(Value::Bool(false)),
+            "1" => Ok(Value::Bool(true)),
+            // Named separately from the catch-all so the message can say why a
+            // value that is valid in Hyprland does not work here.
+            "2" | "3" => Err(Diagnostic {
+                message: format!("`follow_mouse = {raw}` has no COSMIC equivalent"),
+                span,
+                help: Some(
+                    "cosmic-comp has a single focus rather than separate pointer and \
+                     keyboard focus, so it cannot detach them. Use `1` for focus follows \
+                     mouse or `0` for click to focus."
+                        .into(),
+                ),
+            }),
+            _ => Err(bad("`0` (click to focus) or `1` (focus follows mouse)")),
+        },
     }
 }
 
@@ -660,6 +677,85 @@ mod tests {
             "{}",
             d[0].message
         );
+    }
+
+    /// The alias has to land on the same cosmic-config key as COSMIC's own
+    /// spelling, or the two would be separate settings that merely look alike.
+    #[test]
+    fn follow_mouse_is_the_same_write_as_focus_follows_cursor() {
+        let hypr = resolved("input {\n  follow_mouse = 1\n}\n");
+        let cosmic = resolved("general {\n  focus_follows_cursor = true\n}\n");
+        assert_eq!(hypr.writes, cosmic.writes);
+
+        assert_eq!(hypr.writes.len(), 1);
+        assert_eq!(hypr.writes[0].target.key, "focus_follows_cursor");
+        assert_eq!(hypr.writes[0].kind, WriteKind::Whole(Value::Bool(true)));
+    }
+
+    #[test]
+    fn follow_mouse_zero_is_click_to_focus() {
+        let r = resolved("input {\n  follow_mouse = 0\n}\n");
+        assert_eq!(r.writes[0].kind, WriteKind::Whole(Value::Bool(false)));
+    }
+
+    /// Hyprland accepts 2 and 3, which detach pointer focus from keyboard
+    /// focus. cosmic-comp has one focus and cannot, so the values are refused.
+    /// Rounding them to 1 would hand click-to-focus users the opposite of what
+    /// they asked for and never say so.
+    #[test]
+    fn follow_mouse_rejects_the_modes_cosmic_cannot_express() {
+        for v in ["2", "3"] {
+            let d = errors(&format!("input {{\n  follow_mouse = {v}\n}}\n"));
+            assert_eq!(d.len(), 1, "{v}: {d:?}");
+            assert!(
+                d[0].message.contains("no COSMIC equivalent"),
+                "{v}: {}",
+                d[0].message
+            );
+            assert!(
+                d[0].help.as_deref().unwrap_or_default().contains("Use `1`"),
+                "{v}: help should say what to write instead, got {:?}",
+                d[0].help
+            );
+        }
+    }
+
+    /// It is an integer setting in Hyprland, so `true` is not one of its
+    /// spellings even though the value it resolves to is a boolean.
+    #[test]
+    fn follow_mouse_does_not_quietly_accept_boolean_spellings() {
+        let d = errors("input {\n  follow_mouse = true\n}\n");
+        assert_eq!(d.len(), 1);
+        assert!(
+            d[0].message.contains("`0`") && d[0].message.contains("`1`"),
+            "{}",
+            d[0].message
+        );
+    }
+
+    #[test]
+    fn follow_mouse_delay_shares_the_delay_key_and_its_range() {
+        let r = resolved("input {\n  follow_mouse_delay = 400\n}\n");
+        assert_eq!(r.writes[0].target.key, "focus_follows_cursor_delay");
+        assert_eq!(r.writes[0].kind, WriteKind::Whole(Value::U32(400)));
+
+        let d = errors("input {\n  follow_mouse_delay = 9001\n}\n");
+        assert!(
+            d[0].message.contains("outside the allowed range"),
+            "{}",
+            d[0].message
+        );
+    }
+
+    /// Both spellings in one file is not an error: the file's own rule is that
+    /// the last assignment wins, and these are two names for one target.
+    #[test]
+    fn the_last_spelling_in_the_file_wins() {
+        let r = resolved(
+            "general {\n  focus_follows_cursor = true\n}\ninput {\n  follow_mouse = 0\n}\n",
+        );
+        assert_eq!(r.writes.len(), 1, "one target, not two: {:?}", r.writes);
+        assert_eq!(r.writes[0].kind, WriteKind::Whole(Value::Bool(false)));
     }
 
     #[test]
