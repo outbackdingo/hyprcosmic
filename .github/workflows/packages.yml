@@ -251,6 +251,47 @@ jobs:
           test ! -e stage/usr/libexec/hyprcosmic
           echo "staged files: $(find stage -type f | wc -l)"
 
+      # Checked here, once, rather than in each of the three packaging recipes,
+      # and not with desktop-file-validate.
+      #
+      # desktop-file-validate rejects DesktopNames -- "keys extending the format
+      # should start with X-" -- because the Desktop Entry Specification
+      # registers keys for application launchers, and these are session files.
+      # DesktopNames is what a display manager reads to set XDG_CURRENT_DESKTOP,
+      # so the session needs it. cosmic.desktop is upstream cosmic-session's
+      # file, unchanged here apart from the Exec path, and the copy Fedora ships
+      # as cosmic-session-1.5.0-1.fc44 fails the identical check: the validator
+      # has no entry for the key, and every distribution ships the file anyway.
+      #
+      # What the validator would not have caught is the failure that actually
+      # matters: an Exec naming a binary this package does not install puts an
+      # entry on the greeter's menu that dies silently when chosen. So that is
+      # what is checked, against the tree about to be packaged.
+      - name: Check the session entries
+        run: |
+          set -eu
+          for f in stage/usr/share/wayland-sessions/*.desktop; do
+            echo "== $f"
+            cat "$f"
+            test "$(sed -n 1p "$f")" = '[Desktop Entry]' || {
+              echo "$f: first line is not [Desktop Entry]" >&2; exit 1; }
+            for key in Name Type Exec DesktopNames; do
+              grep -q "^${key}=" "$f" || { echo "$f: no $key=" >&2; exit 1; }
+            done
+            grep -qx 'Type=Application' "$f" || {
+              echo "$f: Type is not Application; a greeter will ignore it" >&2; exit 1; }
+            exec_path=$(sed -n '0,/^Exec=/s/^Exec=//p' "$f" | cut -d' ' -f1)
+            case $exec_path in
+              /*) ;;
+              *) echo "$f: Exec=$exec_path is not absolute" >&2; exit 1 ;;
+            esac
+            test -x "stage${exec_path}" || {
+              echo "$f: Exec=$exec_path is not an executable this package installs" >&2
+              exit 1
+            }
+            echo "   Exec -> stage${exec_path} ok"
+          done
+
       # ---- Fedora -------------------------------------------------------
       #
       # The file list is generated rather than written into the spec. Across 27
@@ -325,7 +366,11 @@ jobs:
           # dependencies without touching the filesystem, and this image is not
           # a desktop, so a real install would fail on runtime libraries that
           # say nothing about whether the package is well formed.
-          pacman -Qlp dist/*.pkg.tar.zst | head -20
+          # To a file and then head: `| head` would kill pacman with SIGPIPE
+          # once head has its 20 lines, and these steps run with pipefail.
+          pacman -Qlp dist/*.pkg.tar.zst > contents.txt
+          echo "entries: $(wc -l < contents.txt)"
+          head -20 contents.txt
 
       # ---- Debian -------------------------------------------------------
       #
@@ -364,7 +409,13 @@ jobs:
         run: |
           set -eux
           dpkg-deb --info dist/*.deb
-          dpkg-deb --contents dist/*.deb | head -20
+          # To a file and then head, not `| head`. Actions runs these steps with
+          # pipefail, and head closing the pipe after 20 lines kills dpkg-deb
+          # with SIGPIPE, which pipefail reports as a failed step -- a green
+          # 217 MB package failed here on nothing but that.
+          dpkg-deb --contents dist/*.deb > contents.txt
+          echo "entries: $(wc -l < contents.txt)"
+          head -20 contents.txt
           # lintian is not installed and would fail this package on a dozen
           # policy points that do not apply to a desktop fork shipped outside
           # the archive. What matters here is that dpkg can read it back.
