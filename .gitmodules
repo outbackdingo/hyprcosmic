@@ -1,10 +1,10 @@
 [submodule "cosmic-session"]
     path = cosmic-session
-	url = git@github.com:outbackdingo/hyprcosmic-session.git
+	url = https://github.com/outbackdingo/hyprcosmic-session
     branch = master
 [submodule "cosmic-comp"]
     path = cosmic-comp
-	url = git@github.com:outbackdingo/hyprcosmic-comp.git
+	url = https://github.com/outbackdingo/hyprcosmic-comp
     branch = master
 [submodule "cosmic-panel"]
     path = cosmic-panel

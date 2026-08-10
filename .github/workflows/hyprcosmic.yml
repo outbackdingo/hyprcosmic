@@ -116,14 +116,22 @@ jobs:
     name: assets and installer
     runs-on: ubuntu-latest
     steps:
-      # Submodules because tools/install-assets.sh also places the session entry
-      # point, which is versioned in the cosmic-session fork. The script degrades
-      # gracefully when that checkout is absent -- it warns and skips those two
-      # files -- so this still passes before the submodules exist, just with less
-      # covered.
+      # Not `submodules: recursive`. This repository names 29 of them, 27 of
+      # which are the rest of COSMIC and none of which this job touches -- the
+      # only one needed is cosmic-session, because tools/install-assets.sh also
+      # places the session entry point that lives there. Cloning the other 27 to
+      # lint some CSS would cost several gigabytes per run.
+      #
+      # The script degrades gracefully when that checkout is absent -- it warns
+      # and skips those two files -- so a failure to fetch would quietly reduce
+      # what is covered rather than fail. Hence the assertion after it.
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch only the session submodule
+        run: |
+          set -eux
+          git submodule update --init --depth 1 cosmic-session
+          test -f cosmic-session/data/start-hyprcosmic
 
       # config.jsonc is generated, and the repository's rule is that it is never
       # hand-edited: every Nerd Font glyph in it comes from a codepoint table in
