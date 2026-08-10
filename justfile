@@ -33,7 +33,18 @@ build:
     {{ make }} -C cosmic-wallpapers all
     {{ make }} -C cosmic-workspaces-epoch all
     {{ just }} pop-launcher/build-release
-    {{ make }} -C xdg-desktop-portal-cosmic all
+    # `just`, not `make`. Upstream cosmic-epoch still says
+    # `{{ make }} -C xdg-desktop-portal-cosmic all` here, and at the submodule
+    # commit both it and this fork pin (f211aa37, epoch-1.5.0) the portal has no
+    # Makefile at all -- it moved to a justfile and the meta-repository's recipe
+    # was never updated. `just build` upstream therefore fails on this line
+    # after compiling all 26 other components, which is presumably why it went
+    # unnoticed: distributions build COSMIC one component at a time and never
+    # take this path.
+    #
+    # `build` rather than `build-release`: the portal has no build-release
+    # recipe. Its `build` defaults to debug='0', which selects --release.
+    {{ just }} xdg-desktop-portal-cosmic/build
 
 install rootdir="" prefix="/usr/local": build
     {{ just }} rootdir={{rootdir}} prefix={{prefix}} cosmic-applets/install
@@ -63,7 +74,9 @@ install rootdir="" prefix="/usr/local": build
     {{ make }} -C cosmic-wallpapers install DESTDIR={{rootdir}} prefix={{prefix}}
     {{ make }} -C cosmic-workspaces-epoch install DESTDIR={{rootdir}} prefix={{prefix}}
     {{ just }} rootdir={{rootdir}} pop-launcher/install
-    {{ make }} -C xdg-desktop-portal-cosmic install DESTDIR={{rootdir}} prefix={{prefix}}
+    # See the note in `build`: this is a justfile, not a Makefile, so the
+    # arguments are rootdir/prefix rather than DESTDIR/prefix.
+    {{ just }} rootdir={{rootdir}} prefix={{prefix}} xdg-desktop-portal-cosmic/install
     # The waybar and rofi assets, and the power menu. Last, because it is the
     # only step that prints a warning worth reading: several of these files name
     # /usr/share/hyprcosmic as a literal -- a .rasi has no variables and the
