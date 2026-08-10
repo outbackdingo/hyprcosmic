@@ -42,6 +42,36 @@ fn find_source_dir(theme_dir: &std::path::Path) -> Option<PathBuf> {
         .find(|c| c.is_dir())
 }
 
+/// Refuse arguments the caller does not understand.
+///
+/// `apply` writes to the config tree, so an argument it does not recognise has
+/// to stop it rather than be skipped: `--diff-only` instead of `--diff`, or a
+/// config path given positionally, would otherwise apply to the *default*
+/// config while looking like it had done what was asked. This is a
+/// hand-rolled check rather than a dependency because the whole surface is six
+/// flags, and an argument parser that silently ignores the unknown is exactly
+/// the behaviour being removed.
+///
+/// `flags` take no value; `valued` consume the argument after them.
+fn reject_unknown(args: &[String], flags: &[&str], valued: &[&str]) -> Result<(), String> {
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if valued.contains(&a.as_str()) {
+            i += 2;
+        } else if flags.contains(&a.as_str()) {
+            i += 1;
+        } else if a == "-h" || a == "--help" {
+            i += 1;
+        } else if let Some(name) = a.strip_prefix("--") {
+            return Err(format!("error: unknown option `--{name}`"));
+        } else {
+            return Err(format!("error: unexpected argument `{a}`"));
+        }
+    }
+    Ok(())
+}
+
 fn default_config_path() -> Option<PathBuf> {
     let base = match std::env::var_os("XDG_CONFIG_HOME") {
         Some(x) if !x.is_empty() => PathBuf::from(x),
@@ -71,6 +101,11 @@ fn main() -> ExitCode {
     }
     if args[0] != "apply" {
         eprintln!("error: unknown command `{}`\n\n{USAGE}", args[0]);
+        return ExitCode::from(2);
+    }
+
+    if let Err(msg) = reject_unknown(&args[1..], &["--diff"], &["--config"]) {
+        eprintln!("{msg}\n\n{USAGE}");
         return ExitCode::from(2);
     }
 
@@ -151,6 +186,12 @@ fn run_import(args: &[String]) -> Result<String, String> {
     let Some(src_path) = args.first().filter(|a| !a.starts_with("--")) else {
         return Err(format!("error: import-theme needs a path\n\n{USAGE}"));
     };
+    reject_unknown(
+        &args[1..],
+        &["--report", "--assets", "--overwrite", "--dry-run"],
+        &["--out", "--source"],
+    )
+    .map_err(|msg| format!("{msg}\n\n{USAGE}"))?;
     let out_path = args
         .iter()
         .position(|a| a == "--out")
@@ -287,4 +328,50 @@ fn install_assets(src_path: &str, name: &str, args: &[String]) -> Result<String,
         .apply(&plan)
         .map_err(|e| format!("error: {e}\n"))?;
     Ok(assets::render_report(&plan, &report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(s: &[&str]) -> Vec<String> {
+        s.iter().map(|a| a.to_string()).collect()
+    }
+
+    #[test]
+    fn known_flags_and_their_values_are_accepted() {
+        let a = args(&["--diff", "--config", "/etc/cosmic.conf"]);
+        assert!(reject_unknown(&a, &["--diff"], &["--config"]).is_ok());
+    }
+
+    #[test]
+    fn a_misspelt_flag_is_refused_rather_than_skipped() {
+        // The bug this exists to prevent: `--diff-only` used to be ignored, so
+        // `apply` wrote for real while the caller believed it was a dry run.
+        let a = args(&["--diff-only"]);
+        let err = reject_unknown(&a, &["--diff"], &["--config"]).unwrap_err();
+        assert!(err.contains("--diff-only"), "{err}");
+    }
+
+    #[test]
+    fn a_positional_path_is_refused_because_it_would_be_ignored() {
+        let a = args(&["/home/me/.config/hyprcosmic/cosmic.conf"]);
+        let err = reject_unknown(&a, &["--diff"], &["--config"]).unwrap_err();
+        assert!(err.contains("unexpected argument"), "{err}");
+    }
+
+    #[test]
+    fn a_value_that_looks_like_a_flag_is_still_a_value() {
+        // `--config --diff` is a user error, but it is the *next* argument's
+        // job to be a path; consuming it here keeps the rule simple and
+        // matches what the position-based lookup below actually does.
+        let a = args(&["--config", "--diff"]);
+        assert!(reject_unknown(&a, &["--diff"], &["--config"]).is_ok());
+    }
+
+    #[test]
+    fn a_trailing_valued_flag_with_no_value_is_not_a_panic() {
+        let a = args(&["--config"]);
+        assert!(reject_unknown(&a, &["--diff"], &["--config"]).is_ok());
+    }
 }
