@@ -12,8 +12,16 @@ cosmic-conf — compile cosmic.conf into the cosmic-config tree
 
 USAGE:
     cosmic-conf apply [--diff] [--config <path>]
+    cosmic-conf watch [--config <path>]
     cosmic-conf import-theme <hypr.theme> [--out <path>] [--report]
                              [--assets [--source <dir>] [--overwrite] [--dry-run]]
+
+COMMANDS:
+    apply             Compile the config once and exit
+    watch             Stay running and recompile on every edit, to the config
+                      and to anything it sources. A malformed edit is reported
+                      and waited past, not fatal.
+    import-theme      Translate a HyDE theme into config keys
 
 OPTIONS:
     --diff            Show what would change without writing anything
@@ -99,12 +107,18 @@ fn main() -> ExitCode {
             }
         };
     }
-    if args[0] != "apply" {
-        eprintln!("error: unknown command `{}`\n\n{USAGE}", args[0]);
+    let command = args[0].as_str();
+    if !matches!(command, "apply" | "watch") {
+        eprintln!("error: unknown command `{command}`\n\n{USAGE}");
         return ExitCode::from(2);
     }
 
-    if let Err(msg) = reject_unknown(&args[1..], &["--diff"], &["--config"]) {
+    // `--diff` belongs to `apply` alone: a daemon whose whole job is to notice
+    // a change and write it has nothing to do with a mode that declines to
+    // write. Passing it to `watch` is an error rather than a no-op, for the
+    // same reason `--diff-only` is.
+    let flags: &[&str] = if command == "apply" { &["--diff"] } else { &[] };
+    if let Err(msg) = reject_unknown(&args[1..], flags, &["--config"]) {
         eprintln!("{msg}\n\n{USAGE}");
         return ExitCode::from(2);
     }
@@ -126,6 +140,16 @@ fn main() -> ExitCode {
             }
         },
     };
+
+    if command == "watch" {
+        return match run_watch(&config_path) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(msg) => {
+                eprint!("{msg}");
+                ExitCode::from(1)
+            }
+        };
+    }
 
     match run(&config_path, diff_only) {
         Ok(msg) => {
@@ -182,6 +206,19 @@ fn run(config_path: &Path, diff_only: bool) -> Result<String, String> {
         "Applied {written} change(s) to {}.",
         emitter.root().display()
     ))
+}
+
+/// Block, recompiling on every edit, until the watcher itself stops.
+///
+/// Returns nothing to print on success because there is no success to report
+/// until it is over: progress goes to stderr as it happens, from inside the
+/// loop. A config error is not an error here either -- `watch` reports a
+/// malformed edit and waits for the next one, which is the whole point of
+/// leaving it running -- so the only failure that reaches this function is the
+/// notify machinery failing to start.
+fn run_watch(config_path: &Path) -> Result<(), String> {
+    let emitter = Emitter::from_env().map_err(|e| format!("error: {e}\n"))?;
+    watch::watch(config_path, &emitter).map_err(|e| format!("{e}\n"))
 }
 
 fn run_import(args: &[String]) -> Result<String, String> {

@@ -344,6 +344,15 @@ pub fn watch(config: &Path, emitter: &Emitter) -> Result<(), WatchError> {
     let mut watcher: RecommendedWatcher = notify::recommended_watcher(tx)?;
     let mut watched: HashSet<PathBuf> = HashSet::new();
 
+    // The last diagnostic printed, so an unchanged one is not printed again.
+    // A single save arrives as several inotify events -- modify, then
+    // close_write, sometimes a rename when the editor writes atomically -- and
+    // they do not all land inside one debounce window, so a broken config
+    // otherwise reports itself three or four times per keystroke-save. Cleared
+    // on every successful compile, so the same error reappearing after a good
+    // one is still news and still printed.
+    let mut last_error: Option<String> = None;
+
     // Compile once up front: the desktop should reflect the config the
     // moment the daemon starts, and this also tells us the initial watch
     // set. If it fails, fall back to watching just `config` — that is the
@@ -357,7 +366,9 @@ pub fn watch(config: &Path, emitter: &Emitter) -> Result<(), WatchError> {
             sync_watches(&mut watcher, &mut watched, &compiled.sources);
         }
         Err(e) => {
-            eprintln!("{e}");
+            let text = e.to_string();
+            eprintln!("{text}");
+            last_error = Some(text);
             sync_watches(
                 &mut watcher,
                 &mut watched,
@@ -381,6 +392,7 @@ pub fn watch(config: &Path, emitter: &Emitter) -> Result<(), WatchError> {
 
         match compile(config, emitter) {
             Ok(compiled) => {
+                last_error = None;
                 if let Err(e) = emitter.apply(&compiled.planned) {
                     eprintln!("{}", CompileError::Emit(vec![e]));
                 }
@@ -390,7 +402,11 @@ pub fn watch(config: &Path, emitter: &Emitter) -> Result<(), WatchError> {
                 // Leave `watched` alone: the fix for a bad edit might land in
                 // an already-sourced file, and dropping back to watching
                 // only `config` would miss that.
-                eprintln!("{e}");
+                let text = e.to_string();
+                if last_error.as_deref() != Some(text.as_str()) {
+                    eprintln!("{text}");
+                    last_error = Some(text);
+                }
             }
         }
     }
