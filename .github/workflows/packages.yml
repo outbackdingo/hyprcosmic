@@ -49,6 +49,15 @@ jobs:
     name: ${{ matrix.distro }}
     runs-on: ubuntu-latest
     container: ${{ matrix.image }}
+    # GitHub defaults `run:` to `sh -e {0}` inside a container, and on Debian
+    # that is dash. Several steps below use brace expansion and process
+    # substitution, which dash does not have and which bash-invoked-as-sh
+    # disables. Naming bash once here is better than writing POSIX around a
+    # constraint no target actually imposes -- all three images ship bash.
+    defaults:
+      run:
+        shell: bash
+
     strategy:
       # One distribution failing on a package name is worth seeing on its own,
       # and the other two artifacts are still worth having.
@@ -133,14 +142,24 @@ jobs:
         with:
           submodules: recursive
 
-      # --default-toolchain none, then let cosmic-comp's rust-toolchain.toml
-      # choose. Naming a version here would create a second place to update it
-      # and a way for the packages to be compiled by something the project does
-      # not otherwise use.
+      # stable as the default, not `none`.
+      #
+      # The two fork workflows use --default-toolchain none and let
+      # rust-toolchain.toml decide, which is right there because the checkout
+      # root is the crate and the pin sits in it. Here it does not: the pin is
+      # cosmic-comp/rust-toolchain.toml, one level down, and this job's other 27
+      # components have no pin at all. With `none` there is no default to fall
+      # back to and the first cargo invocation at the repository root fails
+      # before anything is built.
+      #
+      # Naming stable does not weaken the pin. rustup applies a directory-local
+      # rust-toolchain.toml whenever it enters that directory and installs it on
+      # demand, so cosmic-comp still compiles with the 1.93 it asks for while
+      # everything else uses stable.
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain none --profile minimal
+            | sh -s -- -y --default-toolchain stable --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Show toolchain
