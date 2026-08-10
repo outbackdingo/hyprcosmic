@@ -1,11 +1,15 @@
-# OMC operational artifacts
-.omc/
+# Upstream cosmic-epoch's entries
+.vscode
+cosmic-sysext
+*_build
 
 # Rust
 target/
 **/*.rs.bk
 vendor/
 
-# The two forks used to be listed here, ignored until they had somewhere to
-# live. They are submodules now -- see .gitmodules -- so ignoring them would
-# only hide the commit each one is pinned to.
+# OMC operational artifacts
+.omc/
+
+# The two forks are NOT ignored. They are submodules -- see .gitmodules -- and
+# ignoring them would only hide the commit each one is pinned to.
