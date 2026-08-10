@@ -1,0 +1,173 @@
+/* Geometry and layout for the HyprCosmic launcher.
+ *
+ * Adapted from HyDE's style_1 ("Background image with a sidebar list"), which
+ * is the layout its rofilaunch.sh uses by default. Two deliberate differences:
+ *
+ *   - HyDE injects the border radii, border width and font at the command line,
+ *     as three -theme-str arguments computed from Hyprland's own gaps and
+ *     border settings. We have no launcher script -- the keybinding in
+ *     cosmic.conf runs plain `rofi -show drun` -- so those values are written
+ *     out here, at the defaults rofilaunch.sh would have produced.
+ *   - The sidebar image lives in local.rasi rather than here, because the
+ *     wallpaper path is per-user. HyDE points at ~/.cache/hyde/wall.thmb, a
+ *     thumbnail its wallpaper scripts generate; we do not run those, so
+ *     pointing there would render an empty panel on every machine.
+ *
+ * No colour literals: every colour is a name from palette.rasi, which a theme
+ * may have re-pointed. That separation is what lets `cosmic-conf import-theme`
+ * recolour the launcher without touching a line of layout.
+ */
+
+/* Pango takes a comma-separated family list, so the Nerd Font is a preference
+ * rather than a requirement -- the glyphs in config.rasi's mode labels need it,
+ * but everything else still renders without it. */
+* {
+    font: "JetBrainsMono Nerd Font, Noto Sans Mono 10";
+}
+
+
+// Main //
+window {
+    height:                      33em;
+    width:                       63em;
+    transparency:                "real";
+    fullscreen:                  false;
+    enabled:                     true;
+    cursor:                      "default";
+    spacing:                     0em;
+    padding:                     0em;
+    border:                      2px;
+    border-radius:               30px;
+    border-color:                @main-br;
+    background-color:            @main-bg;
+}
+mainbox {
+    enabled:                     true;
+    spacing:                     0em;
+    padding:                     0em;
+    orientation:                 horizontal;
+    children:                    [ "dummywall" , "listbox" ];
+    background-color:            transparent;
+}
+
+/* The sidebar. Solid colour here so that a machine with no wallpaper override
+ * gets a panel in the theme's own background, not a hole. local.rasi paints an
+ * image over the top when there is one. */
+dummywall {
+    spacing:                     0em;
+    padding:                     0em;
+    width:                       37em;
+    expand:                      false;
+    orientation:                 horizontal;
+    children:                    [ "mode-switcher" , "inputbar" ];
+    background-color:            @main-bg;
+}
+
+
+// Modes //
+mode-switcher {
+    orientation:                 vertical;
+    enabled:                     true;
+    width:                       3.8em;
+    padding:                     9.2em 0.5em 9.2em 0.5em;
+    spacing:                     1.2em;
+    background-color:            transparent;
+}
+button {
+    cursor:                      pointer;
+    border-radius:               2em;
+    background-color:            @main-bg;
+    text-color:                  @main-fg;
+}
+button selected {
+    background-color:            @main-fg;
+    text-color:                  @main-bg;
+}
+
+
+// Inputs //
+/* The entry is hidden: typing filters the list without a visible prompt, which
+ * is what gives style_1 its uncluttered look. inputbar still has to exist for
+ * keystrokes to reach the filter. */
+inputbar {
+    enabled:                     true;
+    children:                    [ "entry" ];
+    background-color:            transparent;
+}
+entry {
+    enabled:                     false;
+}
+
+
+// Lists //
+listbox {
+    spacing:                     0em;
+    padding:                     2em;
+    children:                    [ "dummy" , "listview" , "dummy" ];
+    background-color:            transparent;
+}
+listview {
+    enabled:                     true;
+    spacing:                     0em;
+    padding:                     0em;
+    columns:                     1;
+    lines:                       8;
+    cycle:                       true;
+    dynamic:                     true;
+    scrollbar:                   false;
+    layout:                      vertical;
+    reverse:                     false;
+    expand:                      false;
+    fixed-height:                true;
+    fixed-columns:               true;
+    cursor:                      "default";
+    background-color:            transparent;
+    text-color:                  @main-fg;
+}
+dummy {
+    background-color:            transparent;
+}
+
+
+// Elements //
+element {
+    enabled:                     true;
+    spacing:                     0.8em;
+    padding:                     0.4em 0.4em 0.4em 1.5em;
+    border-radius:               20px;
+    cursor:                      pointer;
+    background-color:            transparent;
+    text-color:                  @main-fg;
+}
+element selected.normal {
+    background-color:            @select-bg;
+    text-color:                  @select-fg;
+}
+element-icon {
+    size:                        2.8em;
+    cursor:                      inherit;
+    background-color:            transparent;
+    text-color:                  inherit;
+}
+element-text {
+    vertical-align:              0.5;
+    horizontal-align:            0.0;
+    cursor:                      inherit;
+    background-color:            transparent;
+    text-color:                  inherit;
+}
+
+
+// Error message //
+error-message {
+    text-color:                  @main-fg;
+    background-color:            @main-bg;
+    text-transform:              capitalize;
+    children:                    [ "textbox" ];
+}
+textbox {
+    text-color:                  inherit;
+    background-color:            inherit;
+    vertical-align:              0.5;
+    horizontal-align:            0.5;
+}

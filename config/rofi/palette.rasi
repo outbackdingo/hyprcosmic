@@ -1,0 +1,31 @@
+/* Default colours for the HyprCosmic launcher.
+ *
+ * Only one name set is needed here, unlike waybar's palette.css. A HyDE theme's
+ * rofi.theme is a list of exactly these names -- main-bg, select-fg and so on --
+ * and rules.rasi references the same names directly, so there is nothing to
+ * bridge between. Importing a theme after this file simply re-points them.
+ *
+ * Defining them here is what makes a missing theme harmless: rules.rasi always
+ * resolves against something, so an unthemed launcher renders with these values
+ * instead of every widget falling back to rofi's stock grey.
+ *
+ * Values are Tokyo Night, matching cosmic-conf's own defaults.
+ */
+
+* {
+    /* Window and text. main-br is the window border, main-ex an accent HyDE
+     * uses for secondary text; rofi themes vary in how much of it they set. */
+    main-bg:         #1a1b26e6;
+    main-fg:         #c0caf5ff;
+    main-br:         #bb9af7ff;
+    main-ex:         #7dcfffff;
+
+    /* The highlighted row. */
+    select-bg:       #7aa2f7ff;
+    select-fg:       #1a1b26ff;
+
+    /* Named by HyDE's themes but unused by this layout. Defined so a theme that
+     * sets them parses, and so one that does not still resolves. */
+    separatorcolor:  transparent;
+    border-color:    transparent;
+}

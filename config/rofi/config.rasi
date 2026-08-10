@@ -1,0 +1,50 @@
+/* rofi configuration and theme entry point for a HyprCosmic session.
+ *
+ * Below the configuration block this file is only an import list, because the
+ * order is the whole design:
+ *
+ *   1. palette.rasi   default colours, under the names HyDE themes use
+ *   2. theme.rasi     the installed HyDE theme's rofi.theme, if any
+ *   3. rules.rasi     geometry and layout; no colour literals at all
+ *   4. local.rasi     per-machine bits: the sidebar wallpaper, the icon theme
+ *
+ * Imports are read strictly in sequence and a later definition of a property
+ * wins over an earlier one. That is what lets step 2 recolour the launcher
+ * without step 3 knowing a theme exists, and step 4 point at a wallpaper
+ * without either of them knowing the path.
+ *
+ * There is no bridge step, unlike waybar: a HyDE rofi.theme defines exactly the
+ * names rules.rasi already references, so nothing needs mapping.
+ *
+ * Steps 2 and 4 are relative imports, which rofi resolves against the directory
+ * of the importing file. That is why this file belongs at
+ * ~/.config/rofi/config.rasi rather than under /usr/share: both are per-user.
+ * It is also the only name rofi loads on its own, so `rofi -show drun` from a
+ * keybinding picks all of this up with no arguments and no launcher script.
+ *
+ * Both relative imports must exist. A missing @import is an error rofi reports
+ * in place of the launcher, not a warning it skips, so `cosmic-conf` writes
+ * theme.rasi and local.rasi even when there is nothing to put in them -- empty,
+ * in which case the defaults from step 1 stand.
+ */
+
+configuration {
+    modi:                "drun,run,window,filebrowser";
+    show-icons:          true;
+
+    /* Nerd Font glyphs, as HyDE's style_1 has them: apps, terminal, files,
+     * windows. They render as tofu without a Nerd Font installed; see the font
+     * list in rules.rasi. */
+    display-drun:        " ";
+    display-run:         " ";
+    display-filebrowser: " ";
+    display-window:      " ";
+
+    drun-display-format: "{name}";
+    window-format:       "{w}{t}";
+}
+
+@import "/usr/share/hyprcosmic/rofi/palette.rasi"
+@import "theme.rasi"
+@import "/usr/share/hyprcosmic/rofi/rules.rasi"
+@import "local.rasi"
