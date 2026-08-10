@@ -1,0 +1,32 @@
+Package: hyprcosmic
+Version: @VERSION@
+Architecture: amd64
+Maintainer: dingo <outbackdingo@gmail.com>
+Section: x11
+Priority: optional
+Homepage: https://github.com/outbackdingo/hyprcosmic
+Installed-Size: @INSTALLED_SIZE@
+Depends: @SHLIB_DEPENDS@
+Recommends: waybar, rofi
+Suggests: fonts-hack-ttf, qt5ct
+Conflicts: cosmic-comp, cosmic-session
+Provides: cosmic-comp, cosmic-session
+Replaces: cosmic-comp, cosmic-session
+Description: COSMIC configured in Hyprland's idiom, with a HyDE shell
+ HyprCosmic is a fork of the COSMIC desktop that takes its configuration in
+ Hyprland's idiom and wears a HyDE-style shell.
+ .
+ A single ~/.config/hyprcosmic/cosmic.conf -- with general { } blocks, bind =
+ lines and $variables -- is compiled into COSMIC's own configuration tree by
+ cosmic-conf. The file is the source of truth: keys it names are applied at
+ every login over whatever the settings UI last stored, and keys it does not
+ name are left alone.
+ .
+ The shell is waybar, rofi and awww in place of cosmic-panel, cosmic-launcher
+ and cosmic-bg, and HyDE themes are imported directly. The compositor is
+ COSMIC's, with a Hyprland-compatible IPC socket so that HyDE's scripts and
+ waybar's hyprland modules work unmodified.
+ .
+ This package replaces the distribution's COSMIC. It installs both session
+ entries, so the greeter offers a stock COSMIC shell as well as the HyDE one,
+ both served by these binaries.

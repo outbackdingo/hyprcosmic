@@ -1,0 +1,354 @@
+# Build installable HyprCosmic packages for Fedora, Arch and Debian.
+#
+# WHY THIS IS A SEPARATE WORKFLOW FROM hyprcosmic.yml
+# --------------------------------------------------
+# hyprcosmic.yml beside it answers "does the fork still build and do the assets
+# still install where they claim to", on every push, in a few minutes. This one
+# compiles 27 Rust components three times over and takes hours. Sharing a file
+# would mean either running the slow thing on every push or never running the
+# fast thing on a tag, and a `if:` guard threaded through a shared matrix to
+# avoid that is harder to read than two files.
+#
+# WHY IT DOES NOT RUN ON EVERY PUSH
+# ---------------------------------
+# Three full desktop builds per commit is hours of runner time to produce
+# artifacts nobody downloads. Tags get packages because that is when a package
+# means something; workflow_dispatch covers wanting one at any other time.
+#
+# WHY THE WHOLE JOB RUNS IN A CONTAINER
+# -------------------------------------
+# Nothing here is statically linked, so a package is only valid on the
+# distribution that built it -- an RPM built on Ubuntu's runner would name
+# Ubuntu's sonames and refuse to install on Fedora. `container:` puts the
+# compile, the staging and the package build all inside an image of the target,
+# so the sonames recorded are the ones that will exist on the machine installing
+# it. This is also why no step here runs on a developer's workstation: the
+# distribution being targeted is rarely the one being typed at.
+name: Packages
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to stamp on the packages'
+        required: false
+        default: '0.1.0'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  package:
+    name: ${{ matrix.distro }}
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      # One distribution failing on a package name is worth seeing on its own,
+      # and the other two artifacts are still worth having.
+      fail-fast: false
+      matrix:
+        include:
+          - distro: fedora
+            image: fedora:44
+          - distro: arch
+            image: archlinux:base-devel
+          # trixie rather than the bookworm the other workflows use. bookworm has
+          # no `just` package -- it arrived in trixie -- and its rustc is 1.63,
+          # so `just` would have to be compiled by a toolchain installed before
+          # the thing that installs toolchains. CI pays that to prove the crate
+          # builds on the oldest supported Debian; a package has no such point
+          # to make.
+          - distro: debian
+            image: debian:trixie
+
+    steps:
+      # Before checkout, deliberately: actions/checkout needs git in the image
+      # and these are bare.
+      #
+      # The library lists are upstream's own, from the components' debian/control
+      # files, translated per distribution rather than trimmed.
+      - name: Install build dependencies (fedora)
+        if: matrix.distro == 'fedora'
+        run: |
+          dnf -y install --setopt=install_weak_deps=False \
+            git curl ca-certificates just \
+            gcc gcc-c++ cmake pkgconf-pkg-config nasm lld mold \
+            clang-devel llvm-devel \
+            desktop-file-utils rpm-build \
+            dbus-devel expat-devel fontconfig-devel freetype-devel \
+            libinput-devel libseat-devel libxkbcommon-devel \
+            mesa-libgbm-devel libglvnd-devel wayland-devel libdisplay-info-devel \
+            pixman-devel cairo-devel pango-devel gtk3-devel gtk4-devel \
+            pipewire-devel pulseaudio-libs-devel \
+            gstreamer1-devel gstreamer1-plugins-base-devel \
+            flatpak-devel systemd-devel libgudev-devel \
+            openssl-devel pam-devel libxml2-devel xkeyboard-config-devel
+
+      # Shorter than the others, and not by omission: Arch ships headers in the
+      # main package rather than splitting a -devel, so `wayland` here is
+      # `wayland-devel` on Fedora.
+      - name: Install build dependencies (arch)
+        if: matrix.distro == 'arch'
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git curl just cmake pkgconf nasm lld mold clang llvm \
+            desktop-file-utils sudo \
+            dbus expat fontconfig freetype2 \
+            libinput seatd libxkbcommon \
+            mesa libglvnd wayland libdisplay-info \
+            pixman cairo pango gtk3 gtk4 \
+            pipewire libpulse gst-plugins-base-libs \
+            flatpak systemd-libs libgudev \
+            openssl pam libxml2 xkeyboard-config
+
+      - name: Install build dependencies (debian)
+        if: matrix.distro == 'debian'
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git curl ca-certificates just \
+            build-essential cmake pkg-config nasm lld mold \
+            clang libclang-dev llvm-dev \
+            desktop-file-utils dpkg-dev fakeroot \
+            libdbus-1-dev libexpat1-dev libfontconfig-dev libfreetype-dev \
+            libinput-dev libseat-dev libxkbcommon-dev \
+            libgbm-dev libegl-dev libgles-dev libwayland-dev libdisplay-info-dev \
+            libpixman-1-dev libcairo2-dev libpango1.0-dev libgtk-3-dev libgtk-4-dev \
+            libpipewire-0.3-dev libpulse-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libflatpak-dev libsystemd-dev libudev-dev libgudev-1.0-dev \
+            libssl-dev libpam0g-dev libxml2-dev xkb-data libxcb1-dev
+
+      # submodules: recursive is the whole point -- this repository is 27
+      # components plus the two forks, and a checkout without them builds
+      # nothing.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # --default-toolchain none, then let cosmic-comp's rust-toolchain.toml
+      # choose. Naming a version here would create a second place to update it
+      # and a way for the packages to be compiled by something the project does
+      # not otherwise use.
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain none --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Show toolchain
+        run: |
+          rustup show
+          cargo --version
+          just --version
+
+      # Keyed per distribution: the same crate compiled against three different
+      # glibcs produces three different artifacts, and sharing one cache between
+      # them would mean each job invalidating the other two.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pkg-${{ matrix.distro }}
+
+      - name: Determine version
+        id: ver
+        run: |
+          set -eux
+          # A tag is authoritative; a manual run uses its input; anything else
+          # falls back so the job is still testable from a branch.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="${{ inputs.version || '0.1.0' }}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: just build
+
+      # prefix=/usr, not the justfile's /usr/local default. Both .desktop files
+      # name an absolute Exec under /usr/bin -- a desktop entry cannot
+      # interpolate a prefix -- so any other prefix stages entries pointing at
+      # paths this step did not write.
+      - name: Stage the install
+        run: just install "$PWD/stage" /usr
+
+      # The staged tree is what all three packages wrap, so it is worth failing
+      # here rather than shipping a package that is missing the compositor. The
+      # negative assertion is the one that would rot quietly: nothing may return
+      # to the private libexec layout this fork used to install into, because a
+      # copy there is a second compositor that nothing runs and no uninstall
+      # removes.
+      - name: Assert the staged tree is a complete desktop
+        run: |
+          set -eux
+          test -x stage/usr/bin/cosmic-comp
+          test -x stage/usr/bin/cosmic-session
+          test -x stage/usr/bin/cosmic-conf
+          test -x stage/usr/bin/start-hyprcosmic
+          test -x stage/usr/bin/start-cosmic
+          test -f stage/usr/share/wayland-sessions/hyprcosmic.desktop
+          test -f stage/usr/share/wayland-sessions/cosmic.desktop
+          test -f stage/usr/lib/systemd/user/cosmic-session.target
+          test -f stage/usr/share/cosmic/com.system76.CosmicSettings.Shortcuts/v1/defaults
+          test -d stage/usr/share/hyprcosmic
+          test ! -e stage/usr/libexec/hyprcosmic
+          echo "staged files: $(find stage -type f | wc -l)"
+
+      # ---- Fedora -------------------------------------------------------
+      #
+      # The file list is generated rather than written into the spec. Across 27
+      # components a hand-maintained %files would be stale within a week, and
+      # stale in the direction that omits files nobody misses until a login
+      # fails.
+      #
+      # Directories need care. A %dir line for every staged directory would
+      # have the package claim /usr, /usr/bin and /usr/share, which the
+      # `filesystem` package owns -- the RPM would build fine and then refuse to
+      # install, or worse, take those directories with it on uninstall. So a
+      # directory is only claimed if no package on the build system already owns
+      # it, which leaves exactly the ones this fork creates
+      # (/usr/share/hyprcosmic and friends).
+      - name: Build the RPM
+        if: matrix.distro == 'fedora'
+        run: |
+          set -eux
+          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          : > files.list
+          find stage -mindepth 1 -type d -printf '%P\n' | while read -r d; do
+            rpm -qf --quiet "/$d" || printf '%%%%dir "/%s"\n' "$d" >> files.list
+          done
+          find stage -mindepth 1 \! -type d -printf '"/%P"\n' >> files.list
+          wc -l files.list
+          rpmbuild -bb packaging/fedora/hyprcosmic.spec \
+            --define "_topdir $PWD/rpmbuild" \
+            --define "stagedir $PWD/stage" \
+            --define "filelist $PWD/files.list" \
+            --define "ver ${{ steps.ver.outputs.version }}"
+          mkdir -p dist
+          find rpmbuild/RPMS -name '*.rpm' -exec cp -v {} dist/ \;
+
+      # A package that installs is the claim being made, so it is tested rather
+      # than assumed. --setopt=tsflags=test does the whole resolution and
+      # conflict check without writing to the container.
+      - name: Verify the RPM
+        if: matrix.distro == 'fedora'
+        run: |
+          set -eux
+          rpm -qpi dist/*.rpm
+          rpm -qp --requires dist/*.rpm
+          dnf -y install --setopt=tsflags=test dist/*.rpm
+
+      # ---- Arch ---------------------------------------------------------
+      #
+      # makepkg refuses to run as root, and a container is root by default, so
+      # the build runs as an unprivileged user that owns the tree it reads.
+      # --nodeps because the depends array names a running system's runtime
+      # libraries, which this image has no reason to hold, and nothing is being
+      # compiled at this point anyway.
+      - name: Build the Arch package
+        if: matrix.distro == 'arch'
+        run: |
+          set -eux
+          useradd -m builder
+          mkdir -p dist
+          cp packaging/arch/PKGBUILD .
+          chown -R builder:builder .
+          sudo -u builder \
+            HYPRCOSMIC_STAGEDIR="$PWD/stage" \
+            HYPRCOSMIC_VERSION="${{ steps.ver.outputs.version }}" \
+            PKGDEST="$PWD/dist" \
+            makepkg --nodeps --noconfirm
+
+      - name: Verify the Arch package
+        if: matrix.distro == 'arch'
+        run: |
+          set -eux
+          pacman -Qip dist/*.pkg.tar.zst
+          # Contents rather than an install: pacman has no dry run that resolves
+          # dependencies without touching the filesystem, and this image is not
+          # a desktop, so a real install would fail on runtime libraries that
+          # say nothing about whether the package is well formed.
+          pacman -Qlp dist/*.pkg.tar.zst | head -20
+
+      # ---- Debian -------------------------------------------------------
+      #
+      # dpkg-deb --build over a staged tree, rather than a full source package.
+      # The Depends line is computed by dpkg-shlibdeps from the binaries
+      # themselves rather than written by hand -- 27 components link against
+      # more libraries than anyone will keep an accurate list of, and a hand
+      # list is wrong in the direction that installs and then fails to start.
+      #
+      # dpkg-shlibdeps insists on a debian/control in the working directory even
+      # when invoked outside a source package, hence the stub.
+      - name: Build the Debian package
+        if: matrix.distro == 'debian'
+        run: |
+          set -eux
+          mkdir -p debian
+          printf 'Source: hyprcosmic\n\nPackage: hyprcosmic\nArchitecture: amd64\n' > debian/control
+          binaries=$(find stage -type f -perm -100 -exec sh -c 'file -b "$1" | grep -q ELF && echo "$1"' _ {} \;)
+          dpkg-shlibdeps -O --ignore-missing-info $binaries > shlibdeps.txt
+          deps=$(sed 's/^shlibs:Depends=//' shlibdeps.txt)
+          size=$(du -sk stage | cut -f1)
+
+          mkdir -p stage/DEBIAN
+          sed -e "s|@VERSION@|${{ steps.ver.outputs.version }}|" \
+              -e "s|@INSTALLED_SIZE@|$size|" \
+              -e "s|@SHLIB_DEPENDS@|$deps|" \
+              packaging/debian/control.in > stage/DEBIAN/control
+          cat stage/DEBIAN/control
+
+          mkdir -p dist
+          dpkg-deb --build --root-owner-group stage \
+            "dist/hyprcosmic_${{ steps.ver.outputs.version }}_amd64.deb"
+
+      - name: Verify the Debian package
+        if: matrix.distro == 'debian'
+        run: |
+          set -eux
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb | head -20
+          # lintian is not installed and would fail this package on a dozen
+          # policy points that do not apply to a desktop fork shipped outside
+          # the archive. What matters here is that dpkg can read it back.
+          dpkg-deb --fsys-tarfile dist/*.deb | tar -tf - >/dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyprcosmic-${{ matrix.distro }}
+          path: dist/
+          retention-days: 30
+
+  # Only on a tag. A dispatch run is for getting artifacts to try, and turning
+  # one into a public release would make every experiment look like a shipped
+  # version.
+  release:
+    needs: package
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attach the packages to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          # Draft, deliberately. These packages conflict with the
+          # distribution's cosmic-comp and cosmic-session, so installing one
+          # replaces the machine's desktop. That is worth a human reading the
+          # notes before it is published rather than a tag push making it
+          # available.
+          draft: true
+          generate_release_notes: true

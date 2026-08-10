@@ -1,0 +1,60 @@
+# HyprCosmic, as one Arch package.
+#
+# There is no build() here, and no source array. This PKGBUILD packages a tree
+# that `just install` has already staged, which tools/make-packages.sh points at
+# through $HYPRCOSMIC_STAGEDIR. The reasoning is in packaging/fedora/hyprcosmic.spec
+# and applies identically: building 27 Rust components a second time under
+# makepkg, to produce bytes that already exist, costs hours and creates a way
+# for the packaged desktop and the built one to drift apart.
+#
+# The consequence, same as there: this package is only valid on the Arch that
+# built it. make-packages.sh builds it inside archlinux:base-devel so that is a
+# current Arch rather than whatever the host is.
+
+pkgname=hyprcosmic
+pkgver=${HYPRCOSMIC_VERSION:-0.1.0}
+pkgrel=1
+pkgdesc="COSMIC configured in Hyprland's idiom, with a HyDE shell"
+arch=('x86_64')
+url="https://github.com/outbackdingo/hyprcosmic"
+license=('GPL-3.0-only')
+
+# The HyDE shell. Without these the session starts to a blank screen: no bar,
+# no launcher, no wallpaper.
+depends=('waybar' 'rofi-wayland' 'wayland' 'libxkbcommon' 'libinput' 'seatd'
+         'mesa' 'pixman' 'libdisplay-info' 'systemd-libs')
+
+# awww is in the AUR rather than in the repositories, so it cannot be a hard
+# depends without making the package uninstallable for anyone who has not built
+# it. Without it there is no wallpaper, which is recoverable; an unsatisfiable
+# dependency is not.
+optdepends=('awww: wallpaper daemon, required for HyDE theme wallpapers'
+            'ttf-nerd-fonts-symbols: glyphs the waybar config draws with'
+            'qt5ct: Qt application theming to match the GTK theme')
+
+# What "complete replacement" means in packaging terms. Every path this writes
+# under /usr/bin is one cosmic-comp and cosmic-session also own, so the two
+# cannot coexist -- which is correct, they are two builds of the same programs.
+#
+# conflicts without replaces/provides-driven auto-removal: pacman stops and
+# names the conflict rather than quietly removing the desktop the machine is
+# currently running.
+conflicts=('cosmic-comp' 'cosmic-session')
+provides=("cosmic-comp=$pkgver" "cosmic-session=$pkgver")
+
+options=('!strip' '!debug')
+
+package() {
+    # Set by make-packages.sh. Failing loudly here beats producing an empty
+    # package, which is what a bare `cp -a "$unset/."` would do.
+    if [ -z "$HYPRCOSMIC_STAGEDIR" ] || [ ! -d "$HYPRCOSMIC_STAGEDIR/usr" ]; then
+        echo "HYPRCOSMIC_STAGEDIR unset or has no usr/; see tools/make-packages.sh" >&2
+        return 1
+    fi
+    cp -a "$HYPRCOSMIC_STAGEDIR/." "$pkgdir/"
+
+    # The two files a broken install shows up in first: a bad Exec line puts an
+    # entry on the greeter's menu that fails silently when it is chosen.
+    desktop-file-validate "$pkgdir/usr/share/wayland-sessions/hyprcosmic.desktop"
+    desktop-file-validate "$pkgdir/usr/share/wayland-sessions/cosmic.desktop"
+}

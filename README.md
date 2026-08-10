@@ -18,10 +18,12 @@ Three things distinguish a HyprCosmic session from a COSMIC one:
 - **HyDE's shell.** waybar instead of cosmic-panel, rofi instead of
   cosmic-launcher, `awww` instead of cosmic-bg. HyDE themes are imported
   directly, palette and wallpapers and all.
-- **It installs beside COSMIC, not over it.** The two modified binaries go to
-  `/usr/libexec/hyprcosmic/`, and the session gets its own entry on the
-  greeter's menu. A machine with COSMIC from its distribution keeps that session
-  working, which matters on the day this one does not start.
+- **It replaces COSMIC rather than sitting next to it.** The binaries install as
+  `/usr/bin/cosmic-comp` and `/usr/bin/cosmic-session`, the paths a cosmic-comp
+  and a cosmic-session go to, and the packages conflict with the distribution's
+  accordingly. Both session entries are installed, so the greeter still offers a
+  stock COSMIC shell for the day the HyDE one does not start — now served by
+  these binaries rather than by a second copy on disk.
 
 ## Repository layout
 
@@ -52,8 +54,8 @@ current.
   deliberately small: `dispatch exec` and `dispatch killactive` are rejected,
   because this is the surface any process that can open the socket gets.
 - New windows open *beside* the focused window rather than inside it.
-- The install goes to `/usr/libexec/hyprcosmic/cosmic-comp`, and the shortcut
-  defaults file is left alone.
+- The install goes to `/usr/bin/cosmic-comp`, at upstream's paths and alongside
+  upstream's two `.ron` defaults files, which are carried unmodified.
 
 **cosmic-session** — profiles. `HYPRCOSMIC_PROFILE=hyprcosmic` (set by
 `hyprcosmic.desktop`) skips cosmic-panel, cosmic-launcher, cosmic-app-library,
@@ -80,6 +82,27 @@ Debian bookworm's rustc is 1.63. `just` is likewise absent before Debian
 trixie; `cargo install just --locked` covers it.
 
 ## Installing
+
+The easiest route is a package. Every tag builds one for Fedora, Arch and Debian
+and attaches it to a draft release; `workflow_dispatch` on **Packages** builds
+them at any other time and leaves them as run artifacts.
+
+```shell
+sudo dnf install ./hyprcosmic-*.rpm          # Fedora
+sudo pacman -U   ./hyprcosmic-*.pkg.tar.zst  # Arch
+sudo dpkg -i     ./hyprcosmic_*_amd64.deb    # Debian
+```
+
+Expect this to fail the first time, and read what it says when it does. These
+packages provide `/usr/bin/cosmic-comp` and `/usr/bin/cosmic-session`, so they
+**conflict with the distribution's `cosmic-comp` and `cosmic-session`** and your
+package manager will refuse until those are removed. That refusal is the design:
+installing HyprCosmic replaces the machine's desktop, and it should take a
+deliberate `dnf remove cosmic-comp cosmic-session` to say so rather than a
+resolver deciding on your behalf. Both session entries survive the swap, so the
+greeter still offers a stock COSMIC shell afterwards.
+
+Building it yourself instead:
 
 ```shell
 sudo just install '' /usr
@@ -225,9 +248,18 @@ Two workflows, on purpose:
   and an `install-assets.sh` round trip into a staging root, verified with
   `--check`.
 
-The two forks carry a `hyprcosmic.yml` of the same shape, each asserting that
-its install landed in `/usr/libexec/hyprcosmic/` and that the files owned by the
-distribution's COSMIC packages went unwritten.
+The two forks carry a `hyprcosmic.yml` of the same shape, each building on
+Fedora, Debian and Arch and asserting that its install landed at upstream's
+paths — and that nothing landed in the private `/usr/libexec/hyprcosmic/` this
+fork used to use, which is the assertion that would otherwise rot quietly.
+
+`packages.yml` in this repository builds installable packages for the same three
+distributions: an RPM, a `.pkg.tar.zst` and a `.deb`, each compiled inside a
+container of the distribution it targets so the sonames it records are the ones
+the installing machine will have. It runs on tags and on demand, not on every
+push — three full desktop builds is hours of runner time. Tags additionally open
+a **draft** release with the packages attached; drafts rather than published,
+because installing one of these replaces the machine's desktop.
 
 The waybar generator deserves its own note. `config.jsonc` is generated from
 `config.jsonc.in` and a codepoint table in `generate-config.py`, and is never
