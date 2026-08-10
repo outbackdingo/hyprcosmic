@@ -79,16 +79,20 @@ impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CompileError::Read { path, error } => {
-                write!(f, "error: cannot read {}: {error}\n", path.display())
+                writeln!(f, "error: cannot read {}: {error}", path.display())
             }
             CompileError::Cycle { path } => {
-                write!(
+                writeln!(
                     f,
-                    "error: `source` cycle detected while expanding {}\n",
+                    "error: `source` cycle detected while expanding {}",
                     path.display()
                 )
             }
-            CompileError::Parse { path, source, error } => {
+            CompileError::Parse {
+                path,
+                source,
+                error,
+            } => {
                 write!(
                     f,
                     "in {}:\n{}",
@@ -96,10 +100,18 @@ impl fmt::Display for CompileError {
                     render_diagnostic(source, error.span, &error.message, None)
                 )
             }
-            CompileError::Resolve { source, diagnostics } => {
+            CompileError::Resolve {
+                source,
+                diagnostics,
+            } => {
                 let mut out = String::new();
                 for d in diagnostics {
-                    out.push_str(&render_diagnostic(source, d.span, &d.message, d.help.as_deref()));
+                    out.push_str(&render_diagnostic(
+                        source,
+                        d.span,
+                        &d.message,
+                        d.help.as_deref(),
+                    ));
                     out.push('\n');
                 }
                 out.push_str(&format!(
@@ -200,7 +212,7 @@ fn merge_text(
 
     // Splicing changes line counts, so process bottom-up: replacing a later
     // line first leaves every earlier line number still valid.
-    targets.sort_by(|a, b| b.0.cmp(&a.0));
+    targets.sort_by_key(|t| std::cmp::Reverse(t.0));
 
     ancestors.push(key);
     let mut lines: Vec<String> = raw.lines().map(String::from).collect();
@@ -236,7 +248,9 @@ fn collect_sources(items: &[Item], out: &mut Vec<(usize, String)>) {
 /// it is checked out.
 fn resolve_source_path(containing_file: &Path, raw: &str) -> PathBuf {
     let expanded = if raw == "~" {
-        std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(raw))
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(raw))
     } else if let Some(rest) = raw.strip_prefix("~/") {
         match std::env::var_os("HOME") {
             Some(home) => PathBuf::from(home).join(rest),
@@ -280,7 +294,11 @@ fn collect_batch<T>(rx: &mpsc::Receiver<T>, window: Duration) -> Option<Vec<T>> 
 /// Best-effort: a `watch`/`unwatch` failure (e.g. a sourced file that does
 /// not exist yet) is not fatal — the next successful compile will retry with
 /// whatever the config asks for at that point.
-fn sync_watches(watcher: &mut RecommendedWatcher, current: &mut HashSet<PathBuf>, wanted: &[PathBuf]) {
+fn sync_watches(
+    watcher: &mut RecommendedWatcher,
+    current: &mut HashSet<PathBuf>,
+    wanted: &[PathBuf],
+) {
     let wanted: HashSet<PathBuf> = wanted.iter().cloned().collect();
 
     for stale in current.difference(&wanted) {
@@ -340,7 +358,11 @@ pub fn watch(config: &Path, emitter: &Emitter) -> Result<(), WatchError> {
         }
         Err(e) => {
             eprintln!("{e}");
-            sync_watches(&mut watcher, &mut watched, std::slice::from_ref(&config.to_path_buf()));
+            sync_watches(
+                &mut watcher,
+                &mut watched,
+                std::slice::from_ref(&config.to_path_buf()),
+            );
         }
     }
 
@@ -394,7 +416,11 @@ mod tests {
     fn compile_with_no_source_directives_watches_just_the_config() {
         let conf_dir = TempDir::new().unwrap();
         let root_dir = TempDir::new().unwrap();
-        let config = write(conf_dir.path(), "cosmic.conf", "general {\n  autotile = true\n}\n");
+        let config = write(
+            conf_dir.path(),
+            "cosmic.conf",
+            "general {\n  autotile = true\n}\n",
+        );
 
         let compiled = compile(&config, &Emitter::with_root(root_dir.path())).unwrap();
 
@@ -406,7 +432,11 @@ mod tests {
     fn compile_follows_a_source_directive_and_lists_it_as_a_watch_target() {
         let conf_dir = TempDir::new().unwrap();
         let root_dir = TempDir::new().unwrap();
-        let included = write(conf_dir.path(), "extra.conf", "general {\n  autotile = true\n}\n");
+        let included = write(
+            conf_dir.path(),
+            "extra.conf",
+            "general {\n  autotile = true\n}\n",
+        );
         let config = write(conf_dir.path(), "cosmic.conf", "source = extra.conf\n");
 
         let compiled = compile(&config, &Emitter::with_root(root_dir.path())).unwrap();
@@ -431,7 +461,10 @@ mod tests {
         let planned = compile(&config, &Emitter::with_root(root_dir.path()))
             .unwrap()
             .planned;
-        let gaps = planned.iter().find(|p| p.path.ends_with("gaps")).expect("gaps planned");
+        let gaps = planned
+            .iter()
+            .find(|p| p.path.ends_with("gaps"))
+            .expect("gaps planned");
         assert_eq!(gaps.contents, "(10, 5)");
     }
 
@@ -453,7 +486,11 @@ mod tests {
     #[test]
     fn compile_expands_tilde_against_home() {
         let home = TempDir::new().unwrap();
-        write(home.path(), "shared.conf", "general {\n  autotile = true\n}\n");
+        write(
+            home.path(),
+            "shared.conf",
+            "general {\n  autotile = true\n}\n",
+        );
         let conf_dir = TempDir::new().unwrap();
         let config = write(conf_dir.path(), "cosmic.conf", "source = ~/shared.conf\n");
 
@@ -473,10 +510,15 @@ mod tests {
     fn compile_follows_a_chain_of_nested_sources() {
         let conf_dir = TempDir::new().unwrap();
         write(conf_dir.path(), "c.conf", "autotile = true\n");
-        write(conf_dir.path(), "b.conf", "general {\n  source = c.conf\n}\n");
+        write(
+            conf_dir.path(),
+            "b.conf",
+            "general {\n  source = c.conf\n}\n",
+        );
         let config = write(conf_dir.path(), "a.conf", "source = b.conf\n");
 
-        let compiled = compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap();
+        let compiled =
+            compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap();
         assert_eq!(compiled.sources.len(), 3);
         assert_eq!(compiled.planned.len(), 1);
     }
@@ -496,9 +538,14 @@ mod tests {
     #[test]
     fn compile_reports_a_missing_source_file_without_panicking() {
         let conf_dir = TempDir::new().unwrap();
-        let config = write(conf_dir.path(), "cosmic.conf", "source = does-not-exist.conf\n");
+        let config = write(
+            conf_dir.path(),
+            "cosmic.conf",
+            "source = does-not-exist.conf\n",
+        );
 
-        let err = compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap_err();
+        let err =
+            compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap_err();
         assert!(matches!(err, CompileError::Read { .. }), "{err}");
     }
 
@@ -508,9 +555,12 @@ mod tests {
         write(conf_dir.path(), "broken.conf", "this is not valid\n");
         let config = write(conf_dir.path(), "cosmic.conf", "source = broken.conf\n");
 
-        let err = compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap_err();
+        let err =
+            compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap_err();
         match err {
-            CompileError::Parse { path, .. } => assert_eq!(path, conf_dir.path().join("broken.conf")),
+            CompileError::Parse { path, .. } => {
+                assert_eq!(path, conf_dir.path().join("broken.conf"))
+            }
             other => panic!("expected Parse, got {other}"),
         }
     }
@@ -528,7 +578,8 @@ mod tests {
             "general {\n  source = bad.conf\n}\n",
         );
 
-        let err = compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap_err();
+        let err =
+            compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap_err();
         match err {
             CompileError::Resolve { diagnostics, .. } => {
                 assert_eq!(diagnostics[0].span.line, 2);
@@ -540,9 +591,14 @@ mod tests {
     #[test]
     fn compile_surfaces_resolve_diagnostics_for_an_unknown_key() {
         let conf_dir = TempDir::new().unwrap();
-        let config = write(conf_dir.path(), "cosmic.conf", "general {\n  gaps_inn = 8\n}\n");
+        let config = write(
+            conf_dir.path(),
+            "cosmic.conf",
+            "general {\n  gaps_inn = 8\n}\n",
+        );
 
-        let err = compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap_err();
+        let err =
+            compile(&config, &Emitter::with_root(TempDir::new().unwrap().path())).unwrap_err();
         assert!(matches!(err, CompileError::Resolve { .. }), "{err}");
         assert!(err.to_string().contains("unknown key"), "{err}");
     }
@@ -552,7 +608,11 @@ mod tests {
     #[test]
     fn compile_does_not_write_to_the_config_root() {
         let conf_dir = TempDir::new().unwrap();
-        let config = write(conf_dir.path(), "cosmic.conf", "general {\n  autotile = true\n}\n");
+        let config = write(
+            conf_dir.path(),
+            "cosmic.conf",
+            "general {\n  autotile = true\n}\n",
+        );
         let root_dir = TempDir::new().unwrap();
 
         let _ = compile(&config, &Emitter::with_root(root_dir.path())).unwrap();
@@ -655,7 +715,7 @@ mod tests {
 
         // Dropping `b` from the wanted set must unwatch it, not just stop
         // tracking it, or the watch set would only ever grow.
-        sync_watches(&mut watcher, &mut current, &[a.clone()]);
+        sync_watches(&mut watcher, &mut current, std::slice::from_ref(&a));
         assert_eq!(current, HashSet::from([a]));
     }
 }

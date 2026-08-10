@@ -155,15 +155,21 @@ fn eval_arith(input: &str) -> String {
 /// trade-off, and HyDE themes write colours as `rgba(...)`, so nothing is lost.
 fn parse_color(raw: &str) -> Option<(u8, u8, u8, u8)> {
     let s = raw.trim();
-    let hex = if let Some(inner) = s.strip_prefix("rgba(").and_then(|s| s.strip_suffix(')')) {
-        inner.trim().to_string()
-    } else if let Some(inner) = s.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
-        inner.trim().to_string()
-    } else {
-        return None;
-    };
+    // Both spellings take the same body; the alpha pair is optional either
+    // way, so `rgb(rrggbbaa)` and `rgba(rrggbb)` are accepted too rather than
+    // rejected on a technicality.
+    let inner = s
+        .strip_prefix("rgba(")
+        .or_else(|| s.strip_prefix("rgb("))
+        .and_then(|s| s.strip_suffix(')'))?;
 
-    let hex = hex.trim_start_matches('#');
+    let hex = inner.trim().trim_start_matches('#');
+    // `len` and the slicing below are both in bytes, so a multi-byte character
+    // would make `hex[i..i + 2]` split a char boundary and panic. A config
+    // typo must not crash the compiler.
+    if !hex.is_ascii() {
+        return None;
+    }
     let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
     match hex.len() {
         6 => Some((byte(0)?, byte(2)?, byte(4)?, 255)),
@@ -217,7 +223,10 @@ fn check_range(v: &Value, range: Option<Range>, span: Span) -> Result<(), Diagno
     };
     if n < r.min || n > r.max {
         return Err(Diagnostic {
-            message: format!("value {n} is outside the allowed range {}..={}", r.min, r.max),
+            message: format!(
+                "value {n} is outside the allowed range {}..={}",
+                r.min, r.max
+            ),
             span,
             help: None,
         });
@@ -299,7 +308,14 @@ pub fn resolve(ast: &Ast) -> Result<Resolved, Vec<Diagnostic>> {
             continue;
         }
 
-        record(entry, value, raw_value.span, &mut projected, &mut whole, &mut diags);
+        record(
+            entry,
+            value,
+            raw_value.span,
+            &mut projected,
+            &mut whole,
+            &mut diags,
+        );
     }
 
     if !diags.is_empty() {
@@ -405,9 +421,7 @@ mod tests {
 
     #[test]
     fn binds_fold_into_one_write_against_the_shortcuts_custom_key() {
-        let r = resolved(
-            "bind = SUPER, D, exec, rofi -show drun\nbind = SUPER, Q, killactive\n",
-        );
+        let r = resolved("bind = SUPER, D, exec, rofi -show drun\nbind = SUPER, Q, killactive\n");
         let w: Vec<_> = r
             .writes
             .iter()
@@ -420,8 +434,14 @@ mod tests {
         let WriteKind::Verbatim(ron) = &w[0].kind else {
             panic!("expected verbatim RON, got {:?}", w[0].kind);
         };
-        assert!(ron.contains(r#"(modifiers: [Super], key: "d"): Spawn("rofi -show drun")"#), "{ron}");
-        assert!(ron.contains(r#"(modifiers: [Super], key: "q"): Close"#), "{ron}");
+        assert!(
+            ron.contains(r#"(modifiers: [Super], key: "d"): Spawn("rofi -show drun")"#),
+            "{ron}"
+        );
+        assert!(
+            ron.contains(r#"(modifiers: [Super], key: "q"): Close"#),
+            "{ron}"
+        );
     }
 
     #[test]
@@ -449,7 +469,11 @@ mod tests {
         let d = errors("bind = SUPER, D, exec, rofi -show drun\nbind = SUPER, D, killactive\n");
         assert_eq!(d.len(), 1);
         assert!(d[0].message.contains("already bound"), "{}", d[0].message);
-        assert!(d[0].help.as_ref().unwrap().contains("line 1"), "{:?}", d[0].help);
+        assert!(
+            d[0].help.as_ref().unwrap().contains("line 1"),
+            "{:?}",
+            d[0].help
+        );
     }
 
     #[test]
@@ -577,7 +601,11 @@ mod tests {
     #[test]
     fn invalid_theme_mode_is_rejected() {
         let d = errors("theme {\n  mode = purple\n}\n");
-        assert!(d[0].message.contains("`dark` or `light`"), "{}", d[0].message);
+        assert!(
+            d[0].message.contains("`dark` or `light`"),
+            "{}",
+            d[0].message
+        );
     }
 
     /// `#` always begins a comment, so a bare hex colour is stripped before it
@@ -601,11 +629,25 @@ mod tests {
     }
 
     #[test]
+    fn a_multibyte_character_in_a_colour_is_an_error_not_a_panic() {
+        // `hex.len()` and the slicing that follows it are both in bytes, so
+        // "€abc" is six bytes and would have been sliced mid-character.
+        for raw in ["rgb(€abc)", "rgba(ff€€ff00)", "rgb(αβγ)"] {
+            let d = errors(&format!("theme {{\n  accent = {raw}\n}}\n"));
+            assert_eq!(d.len(), 1, "{raw}");
+            assert!(d[0].message.contains("colour"), "{}", d[0].message);
+        }
+    }
+
+    #[test]
     fn unknown_key_suggests_the_near_miss() {
         let d = errors("general {\n  gaps_inn = 8\n}\n");
         assert_eq!(d.len(), 1);
         assert!(d[0].message.contains("unknown key"), "{}", d[0].message);
-        assert_eq!(d[0].help.as_deref(), Some("did you mean `general.gaps_in`?"));
+        assert_eq!(
+            d[0].help.as_deref(),
+            Some("did you mean `general.gaps_in`?")
+        );
         assert_eq!(d[0].span.line, 2);
     }
 
@@ -613,13 +655,21 @@ mod tests {
     fn type_errors_are_reported_against_the_value() {
         let d = errors("general {\n  gaps_in = purple\n}\n");
         assert_eq!(d.len(), 1);
-        assert!(d[0].message.contains("non-negative integer"), "{}", d[0].message);
+        assert!(
+            d[0].message.contains("non-negative integer"),
+            "{}",
+            d[0].message
+        );
     }
 
     #[test]
     fn out_of_range_values_are_rejected() {
         let d = errors("general {\n  gaps_in = 9999\n}\n");
-        assert!(d[0].message.contains("outside the allowed range"), "{}", d[0].message);
+        assert!(
+            d[0].message.contains("outside the allowed range"),
+            "{}",
+            d[0].message
+        );
     }
 
     #[test]

@@ -59,9 +59,9 @@ fn reject_unknown(args: &[String], flags: &[&str], valued: &[&str]) -> Result<()
         let a = &args[i];
         if valued.contains(&a.as_str()) {
             i += 2;
-        } else if flags.contains(&a.as_str()) {
-            i += 1;
-        } else if a == "-h" || a == "--help" {
+        } else if flags.contains(&a.as_str()) || a == "-h" || a == "--help" {
+            // `--help` is accepted by every subcommand, so callers do not have
+            // to list it; `main` has already acted on it by this point.
             i += 1;
         } else if let Some(name) = a.strip_prefix("--") {
             return Err(format!("error: unknown option `--{name}`"));
@@ -139,7 +139,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(config_path: &PathBuf, diff_only: bool) -> Result<String, String> {
+fn run(config_path: &Path, diff_only: bool) -> Result<String, String> {
     let emitter = Emitter::from_env().map_err(|e| format!("error: {e}\n"))?;
 
     // Through `watch::compile` rather than parse/resolve/plan inline, because
@@ -175,7 +175,9 @@ fn run(config_path: &PathBuf, diff_only: bool) -> Result<String, String> {
         return Ok(out);
     }
 
-    let written = emitter.apply(&planned).map_err(|e| format!("error: {e}\n"))?;
+    let written = emitter
+        .apply(&planned)
+        .map_err(|e| format!("error: {e}\n"))?;
     Ok(format!(
         "Applied {written} change(s) to {}.",
         emitter.root().display()

@@ -43,7 +43,10 @@ pub enum AssetError {
     /// absolute path or a `..` component. Both would let extraction write
     /// outside `dest_root`, so this is refused unconditionally rather than
     /// sanitised — a theme directory is untrusted input.
-    UnsafeArchiveEntry { archive: PathBuf, entry: PathBuf },
+    UnsafeArchiveEntry {
+        archive: PathBuf,
+        entry: PathBuf,
+    },
     NoHomeDirectory,
 }
 
@@ -156,6 +159,33 @@ pub struct Plan {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Report {
     pub installed: Vec<PathBuf>,
+}
+
+/// A `Plan` under construction, plus the errors found while building it.
+///
+/// The three collections travel together through every `plan_*` helper, so
+/// they are one parameter rather than three `&mut Vec`s. Errors accumulate
+/// instead of returning early: a theme with one unreadable file should still
+/// report what it would have done with the rest, the same way `resolve`
+/// collects diagnostics rather than stopping at the first.
+#[derive(Default)]
+struct Draft {
+    actions: Vec<Action>,
+    skipped: Vec<Note>,
+    errors: Vec<AssetError>,
+}
+
+impl Draft {
+    fn finish(self) -> Result<Plan, Vec<AssetError>> {
+        if self.errors.is_empty() {
+            Ok(Plan {
+                actions: self.actions,
+                skipped: self.skipped,
+            })
+        } else {
+            Err(self.errors)
+        }
+    }
 }
 
 impl Action {
@@ -280,9 +310,7 @@ impl Installer {
         theme_name: &str,
         overwrite: bool,
     ) -> Result<Plan, Vec<AssetError>> {
-        let mut actions = Vec::new();
-        let mut skipped = Vec::new();
-        let mut errors = Vec::new();
+        let mut draft = Draft::default();
 
         if let Some(source_dir) = source_dir {
             for (kind, prefix, dest_root) in [
@@ -292,36 +320,32 @@ impl Installer {
                 match find_tarball(source_dir, prefix) {
                     Ok(Some(archive)) => {
                         match self.plan_archive(kind, &archive, &dest_root, overwrite) {
-                            Ok(Some(action)) => actions.push(action),
-                            Ok(None) => skipped.push(Note {
+                            Ok(Some(action)) => draft.actions.push(action),
+                            Ok(None) => draft.skipped.push(Note {
                                 kind,
                                 path: archive,
                                 reason: SkipReason::AlreadyInstalled,
                             }),
-                            Err(e) => errors.push(e),
+                            Err(e) => draft.errors.push(e),
                         }
                     }
                     Ok(None) => {} // No tarball of this kind — not every theme ships both.
-                    Err(e) => errors.push(e),
+                    Err(e) => draft.errors.push(e),
                 }
             }
         }
 
-        self.plan_wallpapers(theme_dir, theme_name, overwrite, &mut actions, &mut skipped, &mut errors);
+        self.plan_wallpapers(theme_dir, theme_name, overwrite, &mut draft);
 
         for (kind, filename) in [
             (AssetKind::Waybar, "waybar.theme"),
             (AssetKind::Rofi, "rofi.theme"),
             (AssetKind::Kitty, "kitty.theme"),
         ] {
-            self.plan_verbatim(theme_dir, kind, filename, overwrite, &mut actions, &mut skipped, &mut errors);
+            self.plan_verbatim(theme_dir, kind, filename, overwrite, &mut draft);
         }
 
-        if errors.is_empty() {
-            Ok(Plan { actions, skipped })
-        } else {
-            Err(errors)
-        }
+        draft.finish()
     }
 
     fn plan_archive(
@@ -354,9 +378,7 @@ impl Installer {
         theme_dir: &Path,
         theme_name: &str,
         overwrite: bool,
-        actions: &mut Vec<Action>,
-        skipped: &mut Vec<Note>,
-        errors: &mut Vec<AssetError>,
+        draft: &mut Draft,
     ) {
         let wallpapers_dir = theme_dir.join("wallpapers");
         if !wallpapers_dir.is_dir() {
@@ -371,7 +393,7 @@ impl Installer {
         let entries = match fs::read_dir(&wallpapers_dir) {
             Ok(e) => e,
             Err(e) => {
-                errors.push(e.into());
+                draft.errors.push(e.into());
                 return;
             }
         };
@@ -379,7 +401,7 @@ impl Installer {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
-                    errors.push(e.into());
+                    draft.errors.push(e.into());
                     continue;
                 }
             };
@@ -389,14 +411,14 @@ impl Installer {
             }
             let dest = dest_dir.join(entry.file_name());
             if !overwrite && dest.exists() {
-                skipped.push(Note {
+                draft.skipped.push(Note {
                     kind: AssetKind::Wallpaper,
                     path: src,
                     reason: SkipReason::AlreadyInstalled,
                 });
                 continue;
             }
-            actions.push(Action::CopyWallpaper { src, dest });
+            draft.actions.push(Action::CopyWallpaper { src, dest });
         }
     }
 
@@ -406,9 +428,7 @@ impl Installer {
         kind: AssetKind,
         filename: &str,
         overwrite: bool,
-        actions: &mut Vec<Action>,
-        skipped: &mut Vec<Note>,
-        errors: &mut Vec<AssetError>,
+        draft: &mut Draft,
     ) {
         let src = theme_dir.join(filename);
         if !src.is_file() {
@@ -417,20 +437,20 @@ impl Installer {
         let text = match fs::read_to_string(&src) {
             Ok(t) => t,
             Err(e) => {
-                errors.push(e.into());
+                draft.errors.push(e.into());
                 return;
             }
         };
         match split_hyde_header(&text, &self.home) {
             Some((dest, body)) => {
                 if !overwrite && dest.exists() {
-                    skipped.push(Note {
+                    draft.skipped.push(Note {
                         kind,
                         path: src,
                         reason: SkipReason::AlreadyInstalled,
                     });
                 } else {
-                    actions.push(Action::CopyVerbatim {
+                    draft.actions.push(Action::CopyVerbatim {
                         kind,
                         src,
                         dest,
@@ -438,7 +458,7 @@ impl Installer {
                     });
                 }
             }
-            None => skipped.push(Note {
+            None => draft.skipped.push(Note {
                 kind,
                 path: src,
                 reason: SkipReason::NoDestinationHeader,
@@ -520,7 +540,11 @@ fn find_tarball(dir: &Path, prefix: &str) -> Result<Option<PathBuf>, AssetError>
 /// entry first. Shared between `plan` (`write: false`, a pure read used only
 /// to name-check and reject unsafe archives early) and `apply`
 /// (`write: true`), so the safety check cannot drift between the two paths.
-fn walk_archive(archive_path: &Path, dest_root: &Path, write: bool) -> Result<Vec<PathBuf>, AssetError> {
+fn walk_archive(
+    archive_path: &Path,
+    dest_root: &Path,
+    write: bool,
+) -> Result<Vec<PathBuf>, AssetError> {
     let file = fs::File::open(archive_path)?;
     let mut ar = tar::Archive::new(GzDecoder::new(file));
     let mut entries = Vec::new();
@@ -578,7 +602,10 @@ fn walk_archive(archive_path: &Path, dest_root: &Path, write: bool) -> Result<Ve
 /// out of it. This is the hard security boundary — a theme directory is
 /// untrusted input.
 fn reject_unsafe_path(archive: &Path, entry: &Path) -> Result<(), AssetError> {
-    let escapes = entry.is_absolute() || entry.components().any(|c| matches!(c, Component::ParentDir));
+    let escapes = entry.is_absolute()
+        || entry
+            .components()
+            .any(|c| matches!(c, Component::ParentDir));
     if escapes {
         return Err(AssetError::UnsafeArchiveEntry {
             archive: archive.to_path_buf(),
@@ -663,15 +690,24 @@ mod tests {
             Path::new("../../../../etc/passwd")
         ));
         assert!(!stays_within_root(Path::new(""), Path::new("../escape")));
-        assert!(!stays_within_root(Path::new("a"), Path::new("../../escape")));
+        assert!(!stays_within_root(
+            Path::new("a"),
+            Path::new("../../escape")
+        ));
         // Exactly back to the root is fine; one further is not.
         assert!(stays_within_root(Path::new("a/b"), Path::new("../../c")));
-        assert!(!stays_within_root(Path::new("a/b"), Path::new("../../../c")));
+        assert!(!stays_within_root(
+            Path::new("a/b"),
+            Path::new("../../../c")
+        ));
     }
 
     #[test]
     fn an_absolute_symlink_target_is_refused_however_it_is_spelled() {
-        assert!(!stays_within_root(Path::new("a/b"), Path::new("/etc/passwd")));
+        assert!(!stays_within_root(
+            Path::new("a/b"),
+            Path::new("/etc/passwd")
+        ));
         assert!(!stays_within_root(Path::new("a/b"), Path::new("/")));
     }
 
@@ -721,7 +757,7 @@ mod tests {
         let name_bytes = entry_path.as_bytes();
         header.as_mut_bytes()[..name_bytes.len()].copy_from_slice(name_bytes);
         header.set_cksum();
-        builder.append(&mut header, data).unwrap();
+        builder.append(&header, data).unwrap();
 
         builder.into_inner().unwrap().finish().unwrap();
         path
@@ -786,11 +822,18 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let theme_dir = tmp.path().join("theme");
         write(&theme_dir.join("wallpapers/bg.png"), "not really a png");
-        write(&theme_dir.join("rofi.theme"), "$HOME/.config/rofi/theme.rasi\n* { main-bg: #000; }\n");
+        write(
+            &theme_dir.join("rofi.theme"),
+            "$HOME/.config/rofi/theme.rasi\n* { main-bg: #000; }\n",
+        );
 
         let source_dir = tmp.path().join("Source");
         fs::create_dir_all(&source_dir).unwrap();
-        make_tarball(&source_dir, "Gtk_Mocha.tar.gz", &[("Mocha/gtk.css", b"* {}")]);
+        make_tarball(
+            &source_dir,
+            "Gtk_Mocha.tar.gz",
+            &[("Mocha/gtk.css", b"* {}")],
+        );
 
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
@@ -799,7 +842,10 @@ mod tests {
             .expect("a well-formed theme must plan cleanly");
 
         assert!(!plan.actions.is_empty());
-        assert!(!home.exists(), "planning must not create anything under $HOME");
+        assert!(
+            !home.exists(),
+            "planning must not create anything under $HOME"
+        );
     }
 
     #[test]
@@ -826,7 +872,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let theme_dir = tmp.path().join("theme");
         let body = "* {\n    main-bg: #11111be6;\n    main-fg: #cdd6f4ff;\n}\n";
-        write(&theme_dir.join("rofi.theme"), &format!("$HOME/.config/rofi/theme.rasi\n{body}"));
+        write(
+            &theme_dir.join("rofi.theme"),
+            &format!("$HOME/.config/rofi/theme.rasi\n{body}"),
+        );
 
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
@@ -877,12 +926,22 @@ mod tests {
         fs::create_dir_all(&theme_dir).unwrap();
         let source_dir = tmp.path().join("Source");
         fs::create_dir_all(&source_dir).unwrap();
-        make_tarball(&source_dir, "Gtk_Mocha.tar.gz", &[("Mocha/gtk-3.0/gtk.css", b"* {}")]);
-        make_tarball(&source_dir, "Icon_Tela.tar.gz", &[("Tela/index.theme", b"[Icon Theme]")]);
+        make_tarball(
+            &source_dir,
+            "Gtk_Mocha.tar.gz",
+            &[("Mocha/gtk-3.0/gtk.css", b"* {}")],
+        );
+        make_tarball(
+            &source_dir,
+            "Icon_Tela.tar.gz",
+            &[("Tela/index.theme", b"[Icon Theme]")],
+        );
 
         let home = tmp.path().join("home");
         let installer = Installer::with_paths(home.join(".local/share"), &home);
-        let plan = installer.plan(&theme_dir, Some(&source_dir), "Mocha", false).unwrap();
+        let plan = installer
+            .plan(&theme_dir, Some(&source_dir), "Mocha", false)
+            .unwrap();
         installer.apply(&plan).unwrap();
 
         assert_eq!(
@@ -902,23 +961,35 @@ mod tests {
         fs::create_dir_all(&theme_dir).unwrap();
         let source_dir = tmp.path().join("Source");
         fs::create_dir_all(&source_dir).unwrap();
-        make_tarball(&source_dir, "Gtk_Mocha.tar.gz", &[("Mocha/gtk.css", b"new")]);
+        make_tarball(
+            &source_dir,
+            "Gtk_Mocha.tar.gz",
+            &[("Mocha/gtk.css", b"new")],
+        );
 
         let home = tmp.path().join("home");
         // Simulate a theme already installed under the name the tarball uses.
         write(&home.join(".themes/Mocha/gtk.css"), "old");
 
         let installer = Installer::with_paths(home.join(".local/share"), &home);
-        let plan = installer.plan(&theme_dir, Some(&source_dir), "Mocha", false).unwrap();
+        let plan = installer
+            .plan(&theme_dir, Some(&source_dir), "Mocha", false)
+            .unwrap();
 
-        assert!(plan.actions.is_empty(), "already-installed theme must not be re-planned");
+        assert!(
+            plan.actions.is_empty(),
+            "already-installed theme must not be re-planned"
+        );
         assert_eq!(plan.skipped.len(), 1);
         assert_eq!(plan.skipped[0].reason, SkipReason::AlreadyInstalled);
 
         // Confirm the skip is honoured all the way through apply, and the
         // existing file is left untouched.
         installer.apply(&plan).unwrap();
-        assert_eq!(fs::read_to_string(home.join(".themes/Mocha/gtk.css")).unwrap(), "old");
+        assert_eq!(
+            fs::read_to_string(home.join(".themes/Mocha/gtk.css")).unwrap(),
+            "old"
+        );
     }
 
     #[test]
@@ -928,17 +999,26 @@ mod tests {
         fs::create_dir_all(&theme_dir).unwrap();
         let source_dir = tmp.path().join("Source");
         fs::create_dir_all(&source_dir).unwrap();
-        make_tarball(&source_dir, "Gtk_Mocha.tar.gz", &[("Mocha/gtk.css", b"new")]);
+        make_tarball(
+            &source_dir,
+            "Gtk_Mocha.tar.gz",
+            &[("Mocha/gtk.css", b"new")],
+        );
 
         let home = tmp.path().join("home");
         write(&home.join(".themes/Mocha/gtk.css"), "old");
 
         let installer = Installer::with_paths(home.join(".local/share"), &home);
-        let plan = installer.plan(&theme_dir, Some(&source_dir), "Mocha", true).unwrap();
+        let plan = installer
+            .plan(&theme_dir, Some(&source_dir), "Mocha", true)
+            .unwrap();
         assert_eq!(plan.actions.len(), 1);
 
         installer.apply(&plan).unwrap();
-        assert_eq!(fs::read_to_string(home.join(".themes/Mocha/gtk.css")).unwrap(), "new");
+        assert_eq!(
+            fs::read_to_string(home.join(".themes/Mocha/gtk.css")).unwrap(),
+            "new"
+        );
     }
 
     #[test]
