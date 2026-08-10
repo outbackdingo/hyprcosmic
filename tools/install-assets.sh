@@ -24,8 +24,10 @@
 # Per-user files. `cosmic-conf import-theme --assets` writes those, because they
 # depend on the installed theme and on $HOME; see PER_USER below for the list
 # and its owner. The cosmic-conf, cosmic-session and cosmic-comp binaries are
-# also out of scope -- they are build outputs, so `cargo` installs them and
-# comparing them byte-for-byte would only ever report a rebuild.
+# also out of scope. The top-level justfile installs them -- cosmic-conf from
+# its own `install` line, the other two from their component's recipe -- and
+# they are build outputs, so comparing them byte-for-byte here would only ever
+# report a rebuild.
 #
 # Usage:
 #   tools/install-assets.sh              install (needs write access to PREFIX)
