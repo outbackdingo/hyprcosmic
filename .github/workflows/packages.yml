@@ -83,12 +83,24 @@ jobs:
       #
       # The library lists are upstream's own, from the components' debian/control
       # files, translated per distribution rather than trimmed.
+      #
+      # The Fedora list names a set of basic tools the other two get for free.
+      # Fedora's container image is deliberately minimal: no `which` (deprecated
+      # there in favour of `command -v`), no make, no findutils, no tar. Arch's
+      # base-devel and Debian's build-essential plus its essential set include
+      # all of them, which is why this only ever broke on one of the three.
+      #
+      # These are not guesses. The top-level justfile opens with
+      # `make := \`which make\``, and the submodules' own recipes shell out to
+      # find, xargs, tar and sed -- 114 tar invocations and 18 find between
+      # them. Several steps in this workflow use find as well.
       - name: Install build dependencies (fedora)
         if: matrix.distro == 'fedora'
         run: |
           dnf -y install --setopt=install_weak_deps=False \
             git curl ca-certificates just \
-            gcc gcc-c++ cmake pkgconf-pkg-config nasm lld mold \
+            gcc gcc-c++ make which findutils tar gzip sed diffutils \
+            cmake pkgconf-pkg-config nasm lld mold \
             clang-devel llvm-devel \
             desktop-file-utils rpm-build \
             dbus-devel expat-devel fontconfig-devel freetype-devel \
@@ -125,7 +137,7 @@ jobs:
             git curl ca-certificates just \
             build-essential cmake pkg-config nasm lld mold \
             clang libclang-dev llvm-dev \
-            desktop-file-utils dpkg-dev fakeroot \
+            desktop-file-utils dpkg-dev fakeroot file \
             libdbus-1-dev libexpat1-dev libfontconfig-dev libfreetype-dev \
             libinput-dev libseat-dev libxkbcommon-dev \
             libgbm-dev libegl-dev libgles-dev libwayland-dev libdisplay-info-dev \
@@ -168,13 +180,20 @@ jobs:
           cargo --version
           just --version
 
-      # Keyed per distribution: the same crate compiled against three different
-      # glibcs produces three different artifacts, and sharing one cache between
-      # them would mean each job invalidating the other two.
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: pkg-${{ matrix.distro }}
-
+      # No Swatinem/rust-cache here, unlike the two fork workflows.
+      #
+      # It was tried and it fails on this repository specifically: the action
+      # runs `cargo metadata` at the workspace root to work out what to cache,
+      # and this root is a meta-repository with no Cargo.toml -- it is 29
+      # submodules, each its own crate with its own target/. The action reported
+      # `could not find Cargo.toml in /__w/hyprcosmic/hyprcosmic` and cached
+      # nothing.
+      #
+      # Listing all 29 workspaces would fix the error and create a worse
+      # problem: their target directories come to roughly 17 GB, against a 10 GB
+      # per-repository cache limit, so the jobs would evict each other's entries
+      # every run and pay upload time for the privilege. A cold build is the
+      # honest cost of a workflow that only runs on tags and on demand.
       - name: Determine version
         id: ver
         run: |
