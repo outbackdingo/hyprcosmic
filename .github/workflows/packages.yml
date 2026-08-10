@@ -81,8 +81,16 @@ jobs:
       # Before checkout, deliberately: actions/checkout needs git in the image
       # and these are bare.
       #
-      # The library lists are upstream's own, from the components' debian/control
-      # files, translated per distribution rather than trimmed.
+      # The library lists are the union of Build-Depends across all 27 upstream
+      # components' debian/control files, translated per distribution rather
+      # than trimmed. Derived mechanically rather than assembled by hand, after
+      # a hand-assembled list built for eighteen minutes and then failed on
+      # dav1d -- a dependency of cosmic-bg that nothing in the obvious set names.
+      #
+      # The Fedora and Arch translations were checked against dnf repoquery and
+      # archlinux.org's package API rather than guessed, because a name that
+      # does not exist fails the whole step: it is libdav1d-devel on Fedora, not
+      # dav1d-devel, and ttf-opensans on Arch, not otf-opensans.
       #
       # The Fedora list names a set of basic tools the other two get for free.
       # Fedora's container image is deliberately minimal: no `which` (deprecated
@@ -102,11 +110,12 @@ jobs:
             gcc gcc-c++ make which findutils tar gzip sed diffutils \
             cmake pkgconf-pkg-config nasm lld mold \
             clang-devel llvm-devel \
-            desktop-file-utils rpm-build \
+            desktop-file-utils rpm-build intltool ImageMagick open-sans-fonts \
             dbus-devel expat-devel fontconfig-devel freetype-devel \
             libinput-devel libseat-devel libxkbcommon-devel \
-            mesa-libgbm-devel libglvnd-devel wayland-devel libdisplay-info-devel \
-            pixman-devel cairo-devel pango-devel gtk3-devel gtk4-devel \
+            mesa-libgbm-devel mesa-libEGL-devel libglvnd-devel \
+            wayland-devel libdisplay-info-devel libdav1d-devel \
+            pixman-devel cairo-devel pango-devel glib2-devel gtk3-devel gtk4-devel \
             pipewire-devel pulseaudio-libs-devel \
             gstreamer1-devel gstreamer1-plugins-base-devel \
             flatpak-devel systemd-devel libgudev-devel \
@@ -120,12 +129,12 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed \
             git curl just cmake pkgconf nasm lld mold clang llvm \
-            desktop-file-utils sudo \
+            desktop-file-utils sudo intltool imagemagick ttf-opensans \
             dbus expat fontconfig freetype2 \
             libinput seatd libxkbcommon \
-            mesa libglvnd wayland libdisplay-info \
-            pixman cairo pango gtk3 gtk4 \
-            pipewire libpulse gst-plugins-base-libs \
+            mesa libglvnd wayland libdisplay-info dav1d \
+            pixman cairo pango glib2 gtk3 gtk4 \
+            pipewire libpipewire libpulse gst-plugins-base-libs \
             flatpak systemd-libs libgudev \
             openssl pam libxml2 xkeyboard-config
 
@@ -138,11 +147,14 @@ jobs:
             build-essential cmake pkg-config nasm lld mold \
             clang libclang-dev llvm-dev \
             desktop-file-utils dpkg-dev fakeroot file \
+            intltool imagemagick fonts-open-sans \
             libdbus-1-dev libexpat1-dev libfontconfig-dev libfreetype-dev \
             libinput-dev libseat-dev libxkbcommon-dev \
-            libgbm-dev libegl-dev libgles-dev libwayland-dev libdisplay-info-dev \
-            libpixman-1-dev libcairo2-dev libpango1.0-dev libgtk-3-dev libgtk-4-dev \
-            libpipewire-0.3-dev libpulse-dev \
+            libgbm-dev libegl-dev libegl1-mesa-dev libgles-dev \
+            libwayland-dev libdisplay-info-dev libdav1d-dev \
+            libpixman-1-dev libcairo2-dev libpango1.0-dev libglib2.0-dev \
+            libgtk-3-dev libgtk-4-dev \
+            libpipewire-0.3-dev libspa-0.2-dev libpulse-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libflatpak-dev libsystemd-dev libudev-dev libgudev-1.0-dev \
             libssl-dev libpam0g-dev libxml2-dev xkb-data libxcb1-dev
