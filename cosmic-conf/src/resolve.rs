@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use crate::bind;
 use crate::parser::{Ast, Item, Span, Spanned};
 use crate::schema::{self, Entry, Range, Target, Ty};
+use crate::workspace;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -268,12 +269,42 @@ pub fn resolve(ast: &Ast) -> Result<Resolved, Vec<Diagnostic>> {
     let mut projected: BTreeMap<TargetKey, BTreeMap<Vec<String>, Value>> = BTreeMap::new();
     let mut whole: BTreeMap<TargetKey, (Value, Span)> = BTreeMap::new();
 
-    // `bind` is the one repeatable key in the language: many lines fold into a
-    // single map rather than the last one winning, so it cannot go through the
-    // schema, which is built around one conf key naming one value.
+    // `bind` and `workspace` are the repeatable keys in the language: many
+    // lines fold into a single value rather than the last one winning, so
+    // neither can go through the schema, which is built around one conf key
+    // naming one value.
     let mut binds: Vec<(bind::Bind, Span)> = Vec::new();
+    let mut workspaces: Vec<(workspace::WorkspaceDecl, Span)> = Vec::new();
 
     for (conf, raw_value, key_span) in &flat {
+        if conf == "workspace" {
+            let expanded = expand_vars(&raw_value.value, &vars);
+            match workspace::parse_workspace(&expanded, raw_value.span) {
+                Ok(w) => {
+                    if let Some((_, prev_span)) =
+                        workspaces.iter().find(|(o, _)| o.index == w.index)
+                    {
+                        diags.push(Diagnostic {
+                            message: format!("workspace {} is already declared", w.index),
+                            span: raw_value.span,
+                            help: Some(format!(
+                                "the earlier declaration is on line {}",
+                                prev_span.line
+                            )),
+                        });
+                        continue;
+                    }
+                    workspaces.push((w, raw_value.span));
+                }
+                Err(e) => diags.push(Diagnostic {
+                    message: e.message,
+                    span: e.span,
+                    help: e.help,
+                }),
+            }
+            continue;
+        }
+
         if conf == "bind" {
             let expanded = expand_vars(&raw_value.value, &vars);
             match bind::parse_bind(&expanded, raw_value.span) {
@@ -339,6 +370,19 @@ pub fn resolve(ast: &Ast) -> Result<Resolved, Vec<Diagnostic>> {
         return Err(diags);
     }
 
+    // A pinned workspace carries its own `tiling_enabled`, so one that did not
+    // say has to inherit the session default rather than default to off --
+    // otherwise declaring workspaces would quietly undo `general:autotile`.
+    // Read before `whole` is consumed below.
+    let default_tiling = whole
+        .get(&TargetKey {
+            component: "com.system76.CosmicComp".into(),
+            version: 1,
+            key: "autotile".into(),
+        })
+        .map(|(v, _)| *v == Value::Bool(true))
+        .unwrap_or(false);
+
     let mut writes: Vec<Write> = whole
         .into_iter()
         .map(|(target, (v, _))| Write {
@@ -362,6 +406,25 @@ pub fn resolve(ast: &Ast) -> Result<Resolved, Vec<Diagnostic>> {
                 component: "com.system76.CosmicSettings.Shortcuts".into(),
                 version: 1,
                 key: "custom".into(),
+            },
+            kind: WriteKind::Verbatim(rendered),
+        });
+    }
+
+    if !workspaces.is_empty() {
+        let rendered = workspace::render(
+            &workspaces.iter().map(|(w, _)| w.clone()).collect::<Vec<_>>(),
+            default_tiling,
+        );
+        writes.push(Write {
+            // `Workspaces::add_output` drains this into the first output that
+            // appears (cosmic-comp `shell/mod.rs`), and `from_pinned` sets
+            // `pinned: true`, which is what stops `can_auto_remove` collecting
+            // the workspace the moment its last window closes.
+            target: TargetKey {
+                component: "com.system76.CosmicComp".into(),
+                version: 1,
+                key: "pinned_workspaces".into(),
             },
             kind: WriteKind::Verbatim(rendered),
         });
@@ -507,6 +570,85 @@ mod tests {
     #[test]
     fn a_bad_bind_is_reported_with_the_rest_of_the_file() {
         let d = errors("bind = SUPER, X, frobnicate\ngeneral {\n    gaps_inn = 8\n}\n");
+        assert_eq!(d.len(), 2, "resolve reports everything in one pass: {d:?}");
+    }
+
+    #[test]
+    fn workspaces_fold_into_one_write_against_the_comp_pinned_workspaces_key() {
+        let r = resolved("workspace = 1, name:term\nworkspace = 2, name:web\n");
+        let w: Vec<_> = r
+            .writes
+            .iter()
+            .filter(|w| w.target.key == "pinned_workspaces")
+            .collect();
+        assert_eq!(w.len(), 1, "every workspace belongs to one list");
+        assert_eq!(w[0].target.component, "com.system76.CosmicComp");
+        assert_eq!(w[0].target.version, 1);
+
+        let WriteKind::Verbatim(ron) = &w[0].kind else {
+            panic!("expected verbatim RON, got {:?}", w[0].kind);
+        };
+        assert!(ron.contains(r#"name: Some("term")"#), "{ron}");
+        assert!(ron.contains(r#"name: Some("web")"#), "{ron}");
+    }
+
+    /// Without this the pinned workspaces would come back floating for a user
+    /// whose whole reason for editing the file was `autotile = true`.
+    #[test]
+    fn a_workspace_that_did_not_say_inherits_general_autotile() {
+        let r = resolved("general {\n  autotile = true\n}\nworkspace = 1\n");
+        let WriteKind::Verbatim(ron) = find(&r, "com.system76.CosmicComp", "pinned_workspaces")
+        else {
+            panic!("expected verbatim RON");
+        };
+        assert!(ron.contains("tiling_enabled: true"), "{ron}");
+
+        let r = resolved("general {\n  autotile = false\n}\nworkspace = 1\n");
+        let WriteKind::Verbatim(ron) = find(&r, "com.system76.CosmicComp", "pinned_workspaces")
+        else {
+            panic!("expected verbatim RON");
+        };
+        assert!(ron.contains("tiling_enabled: false"), "{ron}");
+    }
+
+    #[test]
+    fn declaring_the_same_workspace_twice_is_an_error_not_a_silent_overwrite() {
+        let d = errors("workspace = 2, name:web\nworkspace = 2, name:mail\n");
+        assert_eq!(d.len(), 1);
+        assert!(
+            d[0].message.contains("already declared"),
+            "{}",
+            d[0].message
+        );
+        assert!(
+            d[0].help.as_ref().unwrap().contains("line 1"),
+            "{:?}",
+            d[0].help
+        );
+    }
+
+    /// Symmetric with `no_binds_means_the_shortcuts_file_is_left_alone`: writing
+    /// an empty list would unpin the workspaces of anyone whose cosmic.conf
+    /// simply does not mention them.
+    #[test]
+    fn no_workspaces_means_the_pinned_list_is_left_alone() {
+        let r = resolved("general {\n    gaps_in = 4\n}\n");
+        assert!(r.writes.iter().all(|w| w.target.key != "pinned_workspaces"));
+    }
+
+    #[test]
+    fn a_workspace_expands_variables() {
+        let r = resolved("$browser = web\nworkspace = 1, name:$browser\n");
+        let WriteKind::Verbatim(ron) = find(&r, "com.system76.CosmicComp", "pinned_workspaces")
+        else {
+            panic!("expected verbatim RON");
+        };
+        assert!(ron.contains(r#"name: Some("web")"#), "{ron}");
+    }
+
+    #[test]
+    fn a_bad_workspace_is_reported_with_the_rest_of_the_file() {
+        let d = errors("workspace = 0\ngeneral {\n    gaps_inn = 8\n}\n");
         assert_eq!(d.len(), 2, "resolve reports everything in one pass: {d:?}");
     }
 

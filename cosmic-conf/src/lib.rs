@@ -16,12 +16,14 @@ pub mod parser;
 pub mod resolve;
 pub mod schema;
 pub mod watch;
+pub mod workspace;
 
 pub use bind::{parse_bind, Bind};
 pub use emit::{EmitError, Emitter, Planned};
 pub use import::{import_hypr_theme, render_report, Import};
 pub use parser::{parse, Ast, ParseError, Span};
 pub use resolve::{resolve, Diagnostic, Resolved, Value, Write, WriteKind};
+pub use workspace::{parse_workspace, WorkspaceDecl};
 
 /// Render a diagnostic against source text, cargo-style.
 pub fn render_diagnostic(source: &str, span: Span, message: &str, help: Option<&str>) -> String {

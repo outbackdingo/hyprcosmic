@@ -171,13 +171,19 @@ jobs:
 
       # A login-time script with a syntax error is a black screen with nowhere to
       # print the reason.
+      # Each script is checked with the shell its shebang names rather than with
+      # bash across the board: hyprcosmic-fan is POSIX sh on purpose, and `bash
+      # -n` would happily accept a bashism that fails on a system where /bin/sh
+      # is dash.
       - name: Syntax-check the shell scripts
         run: |
           set -eux
+          sh -n config/bin/hyprcosmic-fan
+          bash -n config/bin/hyprcosmic-keybinds
           bash -n config/bin/hyprcosmic-powermenu
           bash -n tools/install-assets.sh
 
-      # Both scripts are shellcheck-clean today, so this starts as a ratchet
+      # Every script is shellcheck-clean today, so this starts as a ratchet
       # rather than a backlog. The runner image ships shellcheck; the install is
       # there so that stopping to be true is a slow step and not a broken job.
       - name: Shellcheck
@@ -187,7 +193,10 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends shellcheck
           }
-          shellcheck config/bin/hyprcosmic-powermenu tools/install-assets.sh
+          shellcheck config/bin/hyprcosmic-fan \
+                     config/bin/hyprcosmic-keybinds \
+                     config/bin/hyprcosmic-powermenu \
+                     tools/install-assets.sh
 
       # A round trip. Installing into a staging root and then asking --check to
       # confirm it exercises both halves of the script against each other, and
