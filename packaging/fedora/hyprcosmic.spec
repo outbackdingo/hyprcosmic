@@ -59,8 +59,20 @@ Conflicts:      cosmic-comp
 Conflicts:      cosmic-session
 
 # What it stands in for, so anything depending on a COSMIC session is satisfied.
-Provides:       cosmic-comp = %{version}-%{release}
-Provides:       cosmic-session = %{version}-%{release}
+#
+# Versioned at the COSMIC release this fork stands in for, not at this package's
+# own version, and that distinction is the whole point. cosmic-greeter requires
+# `cosmic-comp >= 1.5.0`; a Provides of 0.1.0 does not satisfy it, so dnf
+# resolves the swap by removing the greeter -- which on a stock Fedora COSMIC is
+# the display manager, and the machine comes back to a text console. The failure
+# is silent, in that the transaction succeeds and you find out at the next boot.
+#
+# Bump this when rebasing on a newer COSMIC. It has to be at least the version
+# the target distribution ships, because the packages that stay behind pin it.
+%global cosmic_compat_version 1.5.0
+
+Provides:       cosmic-comp = %{cosmic_compat_version}
+Provides:       cosmic-session = %{cosmic_compat_version}
 
 # The HyDE shell. These are separate programs this fork drives rather than
 # builds, and without them the session starts to a blank screen with no bar and
