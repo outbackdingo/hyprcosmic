@@ -19,10 +19,14 @@ arch=('x86_64')
 url="https://github.com/outbackdingo/hyprcosmic"
 license=('GPL-3.0-only')
 
-# The HyDE shell. Without these the session starts to a blank screen: no bar,
-# no launcher, no wallpaper.
-depends=('waybar' 'rofi-wayland' 'wayland' 'libxkbcommon' 'libinput' 'seatd'
-         'mesa' 'pixman' 'libdisplay-info' 'systemd-libs')
+# cosmic-session is COSMIC itself, which this runs on rather than replaces: one
+# entry pulls the whole desktop, and cosmic-settings, cosmic-osd, the portal and
+# the rest are taken from the repositories at the version they were tested at.
+#
+# The rest is the HyDE shell. Without those the session starts to a blank
+# screen: no bar, no launcher, no wallpaper.
+depends=('cosmic-session' 'waybar' 'rofi-wayland' 'wayland' 'libxkbcommon'
+         'libinput' 'seatd' 'mesa' 'pixman' 'libdisplay-info' 'systemd-libs')
 
 # awww is in the AUR rather than in the repositories, so it cannot be a hard
 # depends without making the package uninstallable for anyone who has not built
@@ -32,15 +36,11 @@ optdepends=('awww: wallpaper daemon, required for HyDE theme wallpapers'
             'ttf-nerd-fonts-symbols: glyphs the waybar config draws with'
             'qt5ct: Qt application theming to match the GTK theme')
 
-# What "complete replacement" means in packaging terms. Every path this writes
-# under /usr/bin is one cosmic-comp and cosmic-session also own, so the two
-# cannot coexist -- which is correct, they are two builds of the same programs.
-#
-# conflicts without replaces/provides-driven auto-removal: pacman stops and
-# names the conflict rather than quietly removing the desktop the machine is
-# currently running.
-conflicts=('cosmic-comp' 'cosmic-session')
-provides=("cosmic-comp=$pkgver" "cosmic-session=$pkgver")
+# No conflicts and no provides, deliberately. This installs beside COSMIC: its
+# binaries are hyprcosmic-comp, hyprcosmic-session and hyprcosmic-conf, and it
+# writes no path that cosmic-comp or cosmic-session owns. An earlier revision
+# took the cosmic-* names and could not be installed over a COSMIC system
+# without erasing the desktop it forked.
 
 options=('!strip' '!debug')
 
@@ -56,13 +56,12 @@ package() {
     fi
     cp -a "$HYPRCOSMIC_STAGEDIR/." "$pkgdir/"
 
-    # No desktop-file-validate on the session entries. It rejects DesktopNames,
+    # No desktop-file-validate on the session entry. It rejects DesktopNames,
     # the key a display manager reads to set XDG_CURRENT_DESKTOP, because the
     # Desktop Entry Specification registers keys for application launchers and
-    # these are session files. cosmic.desktop here is upstream cosmic-session's,
-    # unchanged by this fork apart from the Exec path, and the copy Fedora ships
-    # as cosmic-session-1.5.0-1.fc44 fails the identical check -- so this is the
-    # validator's gap, not something the fork introduced. The workflow
-    # checks what actually matters instead -- that Exec names a file this
-    # package installs -- against the staged tree, before makepkg sees it.
+    # this is a session file. The copy Fedora ships as cosmic-session-1.5.0-1.fc44
+    # fails the identical check -- so this is the validator's gap, not something
+    # the fork introduced. The workflow checks what actually matters instead --
+    # that Exec names a file this package installs -- against the staged tree,
+    # before makepkg sees it.
 }

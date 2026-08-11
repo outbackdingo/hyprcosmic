@@ -229,26 +229,126 @@ jobs:
       - name: Stage the install
         run: just install "$PWD/stage" /usr
 
-      # The staged tree is what all three packages wrap, so it is worth failing
-      # here rather than shipping a package that is missing the compositor. The
-      # negative assertion is the one that would rot quietly: nothing may return
-      # to the private libexec layout this fork used to install into, because a
-      # copy there is a second compositor that nothing runs and no uninstall
-      # removes.
-      - name: Assert the staged tree is a complete desktop
+      # The three binaries this fork actually changes, under their own names.
+      #
+      # Done on every distribution, because start-hyprcosmic and the session
+      # entry name these paths and there is no reason for those to differ per
+      # distribution. cosmic-session takes the compositor as argv[1], so the
+      # pair is arranged in start-hyprcosmic and needs no source change.
+      - name: Give this fork's binaries their own names
         run: |
           set -eux
-          test -x stage/usr/bin/cosmic-comp
-          test -x stage/usr/bin/cosmic-session
-          test -x stage/usr/bin/cosmic-conf
+          mv stage/usr/bin/cosmic-comp    stage/usr/bin/hyprcosmic-comp
+          mv stage/usr/bin/cosmic-session stage/usr/bin/hyprcosmic-session
+          mv stage/usr/bin/cosmic-conf    stage/usr/bin/hyprcosmic-conf
+
+      # The stock session entry goes with it, on Debian only.
+      #
+      # start-cosmic execs /usr/bin/cosmic-session, which the rename above just
+      # took away, so cosmic.desktop would sit on the greeter's menu and die
+      # silently when chosen. Everywhere else the reduction below removes both
+      # and the distribution's own cosmic-session package supplies a working
+      # pair; on Debian there is no such package, so they are removed here and
+      # the greeter offers the HyprCosmic entry alone.
+      - name: Drop the stock session entry it can no longer start
+        if: matrix.distro == 'debian'
+        run: |
+          set -eux
+          rm -f stage/usr/bin/start-cosmic
+          rm -f stage/usr/share/wayland-sessions/cosmic.desktop
+
+      # HyprCosmic installs beside COSMIC rather than over it, and this is the
+      # step that makes that true.
+      #
+      # `just install` stages the whole desktop, because it builds the whole
+      # tree. Nearly all of it is byte-identical to what the distribution
+      # already ships, and the parts that are not are file conflicts that stop
+      # the install outright -- 62 of them on a stock Fedora COSMIC, across 25
+      # packages, which rpm reports only in the transaction check, long after
+      # dnf's dependency solving has said the transaction is fine.
+      #
+      # The alternative to reducing the tree is to claim all 25 packages with
+      # Conflicts, which means erasing them to install this, which on Fedora
+      # includes cosmic-greeter -- the display manager. A fork you can only try
+      # by removing the desktop you would fall back to is a fork with no way
+      # back. So everything the distribution already owns is dropped, and the
+      # package depends on the distribution's COSMIC for it.
+      #
+      # Not on Debian, which has no COSMIC to depend on: neither cosmic-session
+      # nor cosmic-comp is packaged there, in any suite. Reducing the tree there
+      # would produce a package whose dependency can never be satisfied, so the
+      # Debian build keeps the whole desktop it just compiled and stands alone.
+      # Revisit when Debian packages COSMIC.
+      - name: Reduce the staged tree to this fork's own files
+        if: matrix.distro != 'debian'
+        run: |
+          set -eux
+          # /usr/share/cosmic goes too, all of it. Those are the defaults the
+          # compositor reads at first run, and this fork carries upstream's
+          # copies unmodified -- every one of them is byte-identical to a file a
+          # distribution package already owns. rpm permits two packages to own
+          # an identical file, so keeping them would install today and then
+          # collide the first time the distribution changed one. They arrive
+          # with the cosmic-comp this package depends on.
+          ( cd stage && find . \( -type f -o -type l \) -printf '%P\n' ) |
+          while read -r p; do
+            case $p in
+              usr/bin/hyprcosmic-*|usr/bin/start-hyprcosmic) continue ;;
+              usr/share/hyprcosmic/*) continue ;;
+              usr/share/wayland-sessions/hyprcosmic.desktop) continue ;;
+            esac
+            rm -f "stage/$p"
+          done
+          find stage -type d -empty -delete
+
+      # Worth failing here rather than shipping a package that is missing the
+      # compositor. The negative assertions are the ones that would rot quietly:
+      # nothing may return to the private libexec layout this fork used to
+      # install into, and no cosmic-* name may come back, because either one is
+      # a file conflict that only shows up on a machine that has COSMIC
+      # installed -- which is every machine this is meant for.
+      - name: Assert the staged tree is this fork and nothing else
+        if: matrix.distro != 'debian'
+        run: |
+          set -eux
+          test -x stage/usr/bin/hyprcosmic-comp
+          test -x stage/usr/bin/hyprcosmic-session
+          test -x stage/usr/bin/hyprcosmic-conf
           test -x stage/usr/bin/start-hyprcosmic
-          test -x stage/usr/bin/start-cosmic
           test -f stage/usr/share/wayland-sessions/hyprcosmic.desktop
-          test -f stage/usr/share/wayland-sessions/cosmic.desktop
-          test -f stage/usr/lib/systemd/user/cosmic-session.target
-          test -f stage/usr/share/cosmic/com.system76.CosmicSettings.Shortcuts/v1/defaults
           test -d stage/usr/share/hyprcosmic
           test ! -e stage/usr/libexec/hyprcosmic
+          test ! -e stage/usr/bin/cosmic-comp
+          test ! -e stage/usr/bin/cosmic-session
+          test ! -e stage/usr/share/wayland-sessions/cosmic.desktop
+          test ! -e stage/usr/share/cosmic
+          test -z "$(find stage/usr/bin -mindepth 1 ! -name 'hyprcosmic-*' ! -name 'start-hyprcosmic')"
+          echo "staged files: $(find stage -type f | wc -l)"
+
+      # Debian is not reduced, so the assertion is the opposite one: the package
+      # stands alone there and has to carry a desktop that starts. The renamed
+      # three must be present under their new names, and the components the
+      # session launches must still be in the tree rather than assumed to arrive
+      # from a distribution package that does not exist.
+      - name: Assert the staged tree is a complete desktop
+        if: matrix.distro == 'debian'
+        run: |
+          set -eux
+          test -x stage/usr/bin/hyprcosmic-comp
+          test -x stage/usr/bin/hyprcosmic-session
+          test -x stage/usr/bin/hyprcosmic-conf
+          test -x stage/usr/bin/start-hyprcosmic
+          test -f stage/usr/share/wayland-sessions/hyprcosmic.desktop
+          test -d stage/usr/share/hyprcosmic
+          test -d stage/usr/share/cosmic
+          test ! -e stage/usr/libexec/hyprcosmic
+          test ! -e stage/usr/bin/cosmic-comp
+          test ! -e stage/usr/bin/cosmic-session
+          test ! -e stage/usr/bin/start-cosmic
+          test ! -e stage/usr/share/wayland-sessions/cosmic.desktop
+          for c in cosmic-settings cosmic-settings-daemon cosmic-osd cosmic-notifications; do
+            test -x "stage/usr/bin/$c" || { echo "missing $c" >&2; exit 1; }
+          done
           echo "staged files: $(find stage -type f | wc -l)"
 
       # Checked here, once, rather than in each of the three packaging recipes,

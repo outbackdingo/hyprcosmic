@@ -20,14 +20,19 @@
 # it on the release you intend to install it on. The workflow does that by
 # running the whole job inside a container of the target distribution.
 #
-# WHY IT IS ONE PACKAGE AND NOT TWENTY-SEVEN
-# ------------------------------------------
+# WHY IT IS ONE PACKAGE, AND WHY IT IS A SMALL ONE
+# ------------------------------------------------
 # Fedora splits COSMIC into a package per component, which is right for a
-# distribution tracking upstream. This is a fork that replaces the desktop as a
-# unit: the compositor, the session and the config compiler are versioned and
-# tested together, and there is no supported combination in which you take the
-# HyprCosmic cosmic-comp and the distribution's cosmic-session. One package is
-# an accurate description of what is actually supported.
+# distribution tracking upstream. This fork changes three of them -- the
+# compositor, the session and the config compiler it adds -- and they are
+# versioned and tested together, so one package is an accurate description of
+# what is actually supported.
+#
+# It is not a package per component and it is not the whole desktop either. The
+# build tree produces all of COSMIC, because it is COSMIC's tree, but shipping
+# all of it would mean owning files that 25 distribution packages already own.
+# The workflow reduces the staged tree to what this fork actually produces
+# before any of the three packaging recipes see it.
 
 %global _hardened_build 1
 
@@ -45,34 +50,22 @@ License:        GPL-3.0-only
 URL:            https://github.com/outbackdingo/hyprcosmic
 BuildArch:      x86_64
 
-# These are what "complete replacement" means in packaging terms. Every path
-# this package writes under /usr/bin and /usr/share/cosmic is owned by one of
-# these on a stock Fedora, so the two cannot be installed at once -- which is
-# correct, because they are two builds of the same programs.
+# COSMIC itself, which this runs on rather than replaces.
 #
-# Conflicts rather than Obsoletes, deliberately. Obsoletes would let a routine
-# `dnf install hyprcosmic` quietly remove the desktop the machine is currently
-# running. Conflicts stops and says so, and removing the COSMIC packages stays
-# something a person decides to do rather than something a resolver does on
-# their behalf.
-Conflicts:      cosmic-comp
-Conflicts:      cosmic-session
-
-# What it stands in for, so anything depending on a COSMIC session is satisfied.
+# One line pulls the whole desktop, because cosmic-session requires every
+# component. That is exactly what is wanted: HyprCosmic forks the compositor,
+# the session and adds the config compiler, and takes cosmic-settings,
+# cosmic-osd, the portal and the rest from the distribution at the version the
+# distribution tested them at.
 #
-# Versioned at the COSMIC release this fork stands in for, not at this package's
-# own version, and that distinction is the whole point. cosmic-greeter requires
-# `cosmic-comp >= 1.5.0`; a Provides of 0.1.0 does not satisfy it, so dnf
-# resolves the swap by removing the greeter -- which on a stock Fedora COSMIC is
-# the display manager, and the machine comes back to a text console. The failure
-# is silent, in that the transaction succeeds and you find out at the next boot.
-#
-# Bump this when rebasing on a newer COSMIC. It has to be at least the version
-# the target distribution ships, because the packages that stay behind pin it.
-%global cosmic_compat_version 1.5.0
-
-Provides:       cosmic-comp = %{cosmic_compat_version}
-Provides:       cosmic-session = %{cosmic_compat_version}
+# There is deliberately no Conflicts and no Provides here. An earlier revision
+# had both, on the reading that a fork of the desktop replaces the desktop, and
+# it could not be installed: this package's files collided with 25 others in
+# rpm's transaction check, and satisfying that by claiming all 25 with Conflicts
+# would have erased cosmic-greeter, which on a stock Fedora COSMIC is the
+# display manager. Installing beside COSMIC costs three renamed binaries and
+# leaves the stock session on the greeter's menu to fall back to.
+Requires:       cosmic-session >= 1.5.0
 
 # The HyDE shell. These are separate programs this fork drives rather than
 # builds, and without them the session starts to a blank screen with no bar and
@@ -97,7 +90,7 @@ Hyprland's idiom and wears a HyDE-style shell.
 
 A single ~/.config/hyprcosmic/cosmic.conf -- with general { } blocks, bind =
 lines and $variables -- is compiled into COSMIC's own configuration tree by
-cosmic-conf. The file is the source of truth: keys it names are applied at every
+hyprcosmic-conf. The file is the source of truth: keys it names are applied at every
 login over whatever the settings UI last stored, and keys it does not name are
 left alone.
 
@@ -106,9 +99,11 @@ cosmic-bg, and HyDE themes are imported directly. The compositor is COSMIC's,
 with a Hyprland-compatible IPC socket so that HyDE's scripts and waybar's
 hyprland modules work unmodified.
 
-This package replaces the distribution's COSMIC. It installs both session
-entries, so the greeter offers a stock COSMIC shell as well as the HyDE one,
-both served by these binaries.
+This package installs beside the distribution's COSMIC rather than over it. Its
+binaries are hyprcosmic-comp, hyprcosmic-session and hyprcosmic-conf, and it
+adds one session entry; the stock COSMIC entry stays on the greeter's menu,
+served by the distribution's own binaries, so a session that will not start is
+one logout away from a desktop that will.
 
 %prep
 # Nothing to unpack. See the note at the top of this file.
@@ -118,15 +113,14 @@ test -n "%{stagedir}" || { echo "define stagedir: see .github/workflows/packages
 test -d "%{stagedir}/usr" || { echo "%{stagedir}/usr missing; run just install first" >&2; exit 1; }
 cp -a "%{stagedir}/." "%{buildroot}/"
 
-# The session entries are checked by the workflow against the staged tree, not
+# The session entry is checked by the workflow against the staged tree, not
 # with desktop-file-validate here. desktop-file-validate rejects DesktopNames,
 # the key a display manager reads to set XDG_CURRENT_DESKTOP, because the
 # Desktop Entry Specification registers keys for application launchers and this
-# is a session file. cosmic.desktop here is upstream cosmic-session's, unchanged
-# by this fork apart from the Exec path, and the copy Fedora already ships as
-# cosmic-session-1.5.0-1.fc44 fails the identical check -- so this is the
-# validator's gap, not something the fork introduced. Dropping the key would
-# satisfy the validator and break the session.
+# is a session file. The copy Fedora already ships as cosmic-session-1.5.0-1.fc44
+# fails the identical check -- so this is the validator's gap, not something the
+# fork introduced. Dropping the key would satisfy the validator and break the
+# session.
 # See "Check the session entries" in .github/workflows/packages.yml, which
 # tests what actually matters: that Exec names a file this package installs.
 
@@ -138,4 +132,5 @@ cp -a "%{stagedir}/." "%{buildroot}/"
 
 %changelog
 * Mon Aug 10 2026 dingo <outbackdingo@gmail.com> - 0.1.0-1
-- First package of the fork: COSMIC replaced as a unit, HyDE shell, cosmic-conf.
+- First package of the fork: hyprcosmic-comp, hyprcosmic-session and
+  hyprcosmic-conf installed beside the distribution's COSMIC, with a HyDE shell.

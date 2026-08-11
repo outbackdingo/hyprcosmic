@@ -26,7 +26,7 @@
 //!    when you use it, which is Hyprland's behaviour rather than a compromise.
 //! 3. **It lands at the next login, not on apply.** `Workspaces::new` reads the
 //!    key once when the compositor starts and there is no reload path for it,
-//!    while `cosmic-conf watch` is started from the autostart file *after*
+//!    while `hyprcosmic-conf watch` is started from the autostart file *after*
 //!    COSMIC's own components. So an edit is written immediately and takes
 //!    effect the next time the session starts. Every other key in cosmic.conf
 //!    is live, so this one is worth saying out loud.
@@ -450,7 +450,7 @@ mod tests {
         assert!(render(&[ws("1")], false).contains(r#"output: (name: "", edid: None)"#));
     }
 
-    /// Ids have to survive a re-apply, or every `cosmic-conf apply` would hand
+    /// Ids have to survive a re-apply, or every `hyprcosmic-conf apply` would hand
     /// the same workspaces new identities.
     #[test]
     fn ids_are_stable_across_runs_and_unique_per_index() {

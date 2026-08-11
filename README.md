@@ -18,12 +18,13 @@ Three things distinguish a HyprCosmic session from a COSMIC one:
 - **HyDE's shell.** waybar instead of cosmic-panel, rofi instead of
   cosmic-launcher, `awww` instead of cosmic-bg. HyDE themes are imported
   directly, palette and wallpapers and all.
-- **It replaces COSMIC rather than sitting next to it.** The binaries install as
-  `/usr/bin/cosmic-comp` and `/usr/bin/cosmic-session`, the paths a cosmic-comp
-  and a cosmic-session go to, and the packages conflict with the distribution's
-  accordingly. Both session entries are installed, so the greeter still offers a
-  stock COSMIC shell for the day the HyDE one does not start — now served by
-  these binaries rather than by a second copy on disk.
+- **It installs next to COSMIC rather than over it.** The binaries are
+  `/usr/bin/hyprcosmic-comp`, `/usr/bin/hyprcosmic-session` and
+  `/usr/bin/hyprcosmic-conf`, and nothing here writes a path the distribution
+  owns. The stock COSMIC entry stays on the greeter's menu, served by the
+  distribution's own binaries, so the day the HyDE session does not start is one
+  logout away from a desktop that does. (On Debian, where COSMIC is not
+  packaged, the `.deb` carries the desktop itself — see [Installing](#installing).)
 
 ## Repository layout
 
@@ -54,8 +55,9 @@ current.
   deliberately small: `dispatch exec` and `dispatch killactive` are rejected,
   because this is the surface any process that can open the socket gets.
 - New windows open *beside* the focused window rather than inside it.
-- The install goes to `/usr/bin/cosmic-comp`, at upstream's paths and alongside
-  upstream's two `.ron` defaults files, which are carried unmodified.
+- The install goes to `/usr/bin/hyprcosmic-comp`, alongside upstream's two
+  `.ron` defaults files, which are carried unmodified. The distribution's
+  `cosmic-comp` is left where it is, for the stock session to keep using.
 
 **cosmic-session** — profiles. `HYPRCOSMIC_PROFILE=hyprcosmic` (set by
 `hyprcosmic.desktop`) skips cosmic-panel, cosmic-launcher, cosmic-app-library,
@@ -93,14 +95,24 @@ sudo pacman -U   ./hyprcosmic-*.pkg.tar.zst  # Arch
 sudo dpkg -i     ./hyprcosmic_*_amd64.deb    # Debian
 ```
 
-Expect this to fail the first time, and read what it says when it does. These
-packages provide `/usr/bin/cosmic-comp` and `/usr/bin/cosmic-session`, so they
-**conflict with the distribution's `cosmic-comp` and `cosmic-session`** and your
-package manager will refuse until those are removed. That refusal is the design:
-installing HyprCosmic replaces the machine's desktop, and it should take a
-deliberate `dnf remove cosmic-comp cosmic-session` to say so rather than a
-resolver deciding on your behalf. Both session entries survive the swap, so the
-greeter still offers a stock COSMIC shell afterwards.
+Nothing is removed and nothing conflicts. COSMIC is a dependency rather than a
+casualty: the package installs `hyprcosmic-comp`, `hyprcosmic-session` and
+`hyprcosmic-conf` beside the distribution's, and takes cosmic-settings, the
+portal, the OSD and the rest from the distribution at the version it tested
+them at. Log out and pick **HyprCosmic** from the greeter; pick **COSMIC** to go
+back.
+
+An earlier revision did take the `cosmic-*` names, and it could not be
+installed. Its files collided with 25 distribution packages, and the only way to
+satisfy that was to erase them — including cosmic-greeter, which on a Fedora
+COSMIC install *is* the display manager. A desktop you can only try by removing
+the desktop you would fall back to is not one worth shipping.
+
+**Debian is the exception**, because COSMIC is not packaged there — no
+`cosmic-session`, no `cosmic-comp`, in any suite. There is nothing to depend on
+and nothing to install beside, so the `.deb` carries the whole desktop it
+compiled and stands alone, and the greeter offers **HyprCosmic** only. The
+Fedora and Arch packages ship this fork's three binaries and nothing else.
 
 Building it yourself instead:
 
@@ -124,6 +136,13 @@ just install /tmp/stage /usr
 This installs all of COSMIC — the 27 unmodified components as well — plus
 `cosmic-conf` at `$prefix/bin/cosmic-conf`, the shared waybar and rofi assets
 under `$prefix/share/hyprcosmic/`, and `hyprcosmic-powermenu`.
+
+Note that `just install` is not what the packages do. It writes upstream's whole
+desktop at upstream's names, so run against `/usr` on a machine that has COSMIC
+packaged it will overwrite files your package manager owns. The packages are
+built from this same tree and then reduced to this fork's own files and renamed;
+that step lives in `.github/workflows/packages.yml`, not in the justfile, which
+is upstream's. Stage to a directory and inspect it, or install a package.
 
 `install` depends on `build`, which is upstream's arrangement and means `sudo
 just install` compiles as root. That is inherited, not chosen; if you would
@@ -161,9 +180,9 @@ Font for the bar's glyphs.
 `cosmic-config` by:
 
 ```shell
-cosmic-conf apply           # once
-cosmic-conf apply --diff    # show what would change, write nothing
-cosmic-conf watch           # recompile on every edit, for the whole session
+hyprcosmic-conf apply           # once
+hyprcosmic-conf apply --diff    # show what would change, write nothing
+hyprcosmic-conf watch           # recompile on every edit, for the whole session
 ```
 
 `watch` is the first line of the shipped `autostart`, which is what makes "the
@@ -208,7 +227,7 @@ the reference for what is supported.
 ## Theming
 
 ```shell
-cosmic-conf import-theme ~/.config/hyde/themes/'Tokyo Night'/hypr.theme \
+hyprcosmic-conf import-theme ~/.config/hyde/themes/'Tokyo Night'/hypr.theme \
     --out ~/.config/hyprcosmic/theme.conf --report --assets
 ```
 

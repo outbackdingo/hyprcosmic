@@ -23,7 +23,7 @@
 # A malformed edit is not fatal. It is reported to the session log and the last
 # good configuration stays in place, so a typo cannot leave you at a broken
 # desktop -- fix the file and the next save applies.
-cosmic-conf watch
+hyprcosmic-conf watch
 
 # The bar. The layout is shared and lives under /usr/share, but the stylesheet
 # has to be per-user: it imports a sibling theme.css holding the installed HyDE

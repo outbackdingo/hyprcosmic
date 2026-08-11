@@ -7,14 +7,18 @@ use std::process::ExitCode;
 
 use cosmic_conf::{assets, emit::Emitter, import, render_diagnostic, watch};
 
+// Names the installed binary, hyprcosmic-conf, not the crate. The package
+// installs beside COSMIC and keeps every path it owns under a hyprcosmic-*
+// name, so a usage line saying `cosmic-conf` would name something that is not
+// on the system.
 const USAGE: &str = "\
-cosmic-conf — compile cosmic.conf into the cosmic-config tree
+hyprcosmic-conf — compile cosmic.conf into the cosmic-config tree
 
 USAGE:
-    cosmic-conf apply [--diff] [--config <path>]
-    cosmic-conf watch [--config <path>]
-    cosmic-conf import-theme <hypr.theme> [--out <path>] [--report]
-                             [--assets [--source <dir>] [--overwrite] [--dry-run]]
+    hyprcosmic-conf apply [--diff] [--config <path>]
+    hyprcosmic-conf watch [--config <path>]
+    hyprcosmic-conf import-theme <hypr.theme> [--out <path>] [--report]
+                                 [--assets [--source <dir>] [--overwrite] [--dry-run]]
 
 COMMANDS:
     apply             Compile the config once and exit
