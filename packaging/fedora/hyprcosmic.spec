@@ -153,6 +153,15 @@ cp -a "%{stagedir}/." "%{buildroot}/"
 %files -f %{filelist}
 
 %changelog
+* Wed Aug 12 2026 dingo <outbackdingo@gmail.com> - 0.1.1-1
+- Seed ~/.config from /usr/share/hyprcosmic/skel at every session start, so a
+  machine that has never seen HyprCosmic logs into a configured desktop rather
+  than a bare compositor. Existing files are never overwritten.
+- Recommend font(notosansmono) in place of nerd-fonts, which is not a package
+  in any Fedora repository and so could never have been installed.
+- Recommend cosmic-wallpapers, and add hyprcosmic-wallpaper, which falls back
+  to it when no theme has been imported yet.
+
 * Mon Aug 10 2026 dingo <outbackdingo@gmail.com> - 0.1.0-1
 - First package of the fork: hyprcosmic-comp, hyprcosmic-session and
   hyprcosmic-conf installed beside the distribution's COSMIC, with a HyDE shell.
