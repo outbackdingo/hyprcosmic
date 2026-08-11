@@ -76,6 +76,8 @@ SHARED=(
     "config/rofi/palette.rasi:share/hyprcosmic/rofi/palette.rasi:644"
     "config/rofi/rules.rasi:share/hyprcosmic/rofi/rules.rasi:644"
     "config/bin/hyprcosmic-powermenu:bin/hyprcosmic-powermenu:755"
+    "config/bin/hyprcosmic-fan:bin/hyprcosmic-fan:755"
+    "config/bin/hyprcosmic-keybinds:bin/hyprcosmic-keybinds:755"
 )
 
 # The session entry point. Kept apart from SHARED because it is versioned in the
@@ -116,7 +118,13 @@ audit_config_tree() {
     while IFS= read -r -d '' f; do
         rel="${f#"$REPO"/}"
         [[ "$known" == *" $rel "* ]] || unclassified+=("$rel")
-    done < <(find "$REPO/config" -type f -print0 | sort -z)
+    # Dot-directories are pruned. Nothing shipped lives in one, and tooling
+    # drops state inside the tree without asking -- .omc/ appeared under
+    # config/waybar/ and failed this audit with six files that are gitignored
+    # and are not assets. Failing on those trains you to ignore the one message
+    # that catches a genuinely unclassified file. Dot *files* are still walked;
+    # only directories are pruned.
+    done < <(find "$REPO/config" -name '.?*' -type d -prune -o -type f -print0 | sort -z)
 
     ((${#unclassified[@]} == 0)) || die "not listed as shared or per-user: ${unclassified[*]}
   Add each to SHARED or PER_USER in $(basename "${BASH_SOURCE[0]}") and say which."

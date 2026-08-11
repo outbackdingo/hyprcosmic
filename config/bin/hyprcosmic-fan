@@ -1,0 +1,86 @@
+#!/bin/sh
+# Report fan speeds for waybar's custom/fan module, as JSON on stdout.
+#
+# waybar has no fan module, and its temperature module cannot be borrowed for
+# this: it divides by 1000 to turn millidegrees into degrees, which would render
+# 2700 rpm as 2 C.
+#
+# Nor can the sensor be named the way "temperature" names its own, with
+# hwmon-path-abs. That option points at a *parent* directory and takes the one
+# hwmonN inside it, which works for k10temp and amdgpu because each has exactly
+# one. The asus platform device has two --
+#
+#   /sys/devices/platform/asus-nb-wmi/hwmon/hwmon9   name=asus
+#   /sys/devices/platform/asus-nb-wmi/hwmon/hwmon10  name=asus_custom_fan_curve
+#
+# -- and only the first has fan*_input; the second holds the curve's set points.
+# Which of the two waybar picked would be down to readdir order.
+#
+# So this resolves by content instead of by path: any hwmon with a fan*_input.
+# That also makes it portable off this laptop, which a hardcoded asus path would
+# not be. Fans on a desktop's it87 or a thinkpad's thinkpad_hwmon are found the
+# same way.
+#
+# Prints nothing at all when the machine has no readable fan -- a VM, or a
+# passively cooled box. waybar renders an empty custom module as nothing, so the
+# bar loses the item rather than showing a dead zero.
+
+set -eu
+
+max=0
+tooltip=''
+
+for hwmon in /sys/class/hwmon/hwmon*; do
+	[ -d "$hwmon" ] || continue
+
+	# Not every hwmon has a name, and a chip is worth naming in the tooltip
+	# when it does: "cpu_fan" alone does not say which controller reported it.
+	chip=$(cat "$hwmon/name" 2>/dev/null) || chip=''
+	[ -n "$chip" ] || chip=$(basename "$hwmon")
+
+	for input in "$hwmon"/fan*_input; do
+		# The glob is literal when nothing matches, which is the common case:
+		# most hwmons here are temperature-only.
+		[ -e "$input" ] || continue
+
+		rpm=$(cat "$input" 2>/dev/null) || continue
+		# A fan that is stopped reads 0, and a fan that has been unbound reads
+		# nothing. Neither is an error, but neither belongs in the tooltip.
+		case $rpm in
+			'' | *[!0-9]*) continue ;;
+		esac
+
+		# fanN_label when the driver supplies one -- "cpu_fan", "gpu_fan" --
+		# and fanN otherwise.
+		label=$(cat "${input%_input}_label" 2>/dev/null) || label=''
+		[ -n "$label" ] || label=$(basename "${input%_input}")
+
+		[ "$rpm" -gt "$max" ] && max=$rpm
+
+		line="$chip $label: $rpm rpm"
+		if [ -n "$tooltip" ]; then
+			tooltip="$tooltip\\n$line"
+		else
+			tooltip=$line
+		fi
+	done
+done
+
+# No fan anywhere. Say nothing rather than reporting a confident 0 rpm.
+[ -n "$tooltip" ] || exit 0
+
+# The bar shows the fastest fan, because that is the one you can hear and the
+# one that says whether the machine is working. The rest are in the tooltip.
+#
+# The class drives the colour in rules.css. 4000 rpm is where this laptop's fans
+# become audible over a quiet room; below 1 rpm every fan is stopped, which is
+# worth showing differently from a slow one.
+if [ "$max" -ge 4000 ]; then
+	class=high
+elif [ "$max" -eq 0 ]; then
+	class=idle
+else
+	class=normal
+fi
+
+printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' "$max" "$tooltip" "$class"

@@ -55,6 +55,12 @@ ICONS = {
     "BAT_80": 0xF0081,
     "BAT_90": 0xF0082,
     "BAT_100": 0xF0079,
+    "WINDOW": 0xF2D0,
+    "ALERT": 0xF0026,
+    "DISK": 0xF02CA,
+    "GPU": 0xF08AE,
+    "FAN": 0xF0210,
+    "KEYBOARD": 0xF030C,
 }
 
 

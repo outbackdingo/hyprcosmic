@@ -1,0 +1,205 @@
+#!/usr/bin/bash
+#
+# Show every keyboard shortcut in the session, and what each one runs.
+#
+# WHY THIS EXISTS
+# ---------------
+# COSMIC has no keyboard reference. cosmic-settings lists shortcuts in a
+# scrolling pane behind three clicks, which is where you go to *change* one, not
+# where you go to remember one mid-task. Hyprland desktops all ship a cheatsheet
+# on a key and a bar click for exactly that reason, and this is that.
+#
+# WHERE THE BINDINGS COME FROM, AND WHY NOT cosmic.conf
+# -----------------------------------------------------
+# The obvious implementation reads cosmic.conf, and it would be wrong. This
+# machine's cosmic.conf declares six bindings. The session answers to 122. The
+# other 116 are COSMIC's own defaults, which the fork does not restate because
+# it has no reason to -- Super+Q closes a window whether or not anybody wrote it
+# down. A cheatsheet showing six entries would not look broken; it would look
+# complete, and it would be missing every window, workspace and media key on the
+# machine. That is a worse failure than not having the feature.
+#
+# So the sources are the three RON files the compositor actually reads:
+#
+#   /usr/share/cosmic/.../Shortcuts/v1/defaults   116 COSMIC built-ins
+#   ~/.config/cosmic/.../Shortcuts/v1/custom        6 ours, projected from
+#                                                     cosmic.conf by cosmic-conf
+#   /usr/share/cosmic/.../Shortcuts/v1/system_actions
+#                                                   what System(X) actually runs
+#
+# custom wins over defaults on a collision, matching the order the compositor
+# merges them, so a rebound key is listed once with the binding in force.
+#
+# system_actions is what makes this answer the question that was asked. A
+# default reads `System(Screenshot)`, which names an action and not a program;
+# system_actions maps that to `cosmic-screenshot`. Without it a third of the
+# list would name internal actions rather than the applications they launch.
+#
+# THE PARSER
+# ----------
+# These are RON files, and this reads them with a regex, which deserves a
+# defence. The alternative is a `cosmic-conf binds` subcommand, which would be
+# the principled home for this -- cosmic-conf already has the schema and the
+# bind grammar. That is a compiled change and a full package build, and this
+# feature does not need one: the files are one binding per line, and the shape
+# has not moved. The cost of being wrong here is a mangled row in a reference
+# window, not a broken keybinding, because nothing downstream consumes this.
+#
+# If the format does move, the failure is visible immediately and loudly: the
+# count check below refuses to show a list it could not parse.
+
+set -uo pipefail
+
+SYS_DIR=/usr/share/cosmic/com.system76.CosmicSettings.Shortcuts/v1
+USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicSettings.Shortcuts/v1"
+
+command -v rofi >/dev/null 2>&1 || {
+    printf 'hyprcosmic-keybinds: rofi is not installed\n' >&2
+    exit 1
+}
+
+# Errors go to a rofi dialog as well as stderr: the two ways in are a keybinding
+# and a bar click, and neither has a terminal to read stderr from. Same reasoning
+# as hyprcosmic-powermenu.
+fail() {
+    printf 'hyprcosmic-keybinds: %s\n' "$*" >&2
+    rofi -e "$*" >/dev/null 2>&1 || :
+    exit 1
+}
+
+[[ -r "$SYS_DIR/defaults" ]] ||
+    fail "cannot read $SYS_DIR/defaults, so the built-in shortcuts are unknown"
+
+# Resolve System(X) to the command it runs, as "X<tab>command" pairs.
+#
+# system_actions carries /// doc comments and commented-out entries for actions
+# that exist in the enum but are not wired up (KeyboardBrightnessUp is one), so
+# this matches only lines that are a bare name followed by a quoted string.
+system_actions() {
+    [[ -r "$SYS_DIR/system_actions" ]] || return 0
+    sed -nE 's/^[[:space:]]*([A-Za-z]+):[[:space:]]*"(.*)",?[[:space:]]*$/\1\t\2/p' \
+        "$SYS_DIR/system_actions"
+}
+
+# One binding per line, as "modifiers<tab>key<tab>action".
+#
+# Two shapes appear. The usual one carries a key:
+#     (modifiers: [Super, Shift], key: "Escape"): System(LogOut),
+# and a modifier-only binding has none at all:
+#     (modifiers: [Super]): Spawn("rofi -show drun"),
+# The second is how Super alone opens the launcher, so dropping it would lose
+# the single most used binding on the machine.
+bindings() {
+    sed -nE \
+        -e 's/^[[:space:]]*\(modifiers:[[:space:]]*\[([^]]*)\],[[:space:]]*key:[[:space:]]*"([^"]*)"\):[[:space:]]*(.*),[[:space:]]*$/\1\t\2\t\3/p' \
+        -e 's/^[[:space:]]*\(modifiers:[[:space:]]*\[([^]]*)\]\):[[:space:]]*(.*),[[:space:]]*$/\1\t\t\2/p' \
+        "$1"
+}
+
+actions_tsv="$(system_actions)"
+
+# custom is read second so that its rows overwrite defaults in the map below.
+# Missing is normal, not an error: a session with no custom bindings has no such
+# file, and every default still applies.
+raw="$(bindings "$SYS_DIR/defaults")"
+if [[ -r "$USER_DIR/custom" ]]; then
+    raw+=$'\n'"$(bindings "$USER_DIR/custom")"
+fi
+
+[[ -n "${raw//[[:space:]]/}" ]] ||
+    fail "parsed no shortcuts at all from $SYS_DIR/defaults; the file format has changed"
+
+rendered="$(
+    LC_ALL=C awk -F'\t' -v actions="$actions_tsv" '
+    BEGIN {
+        # System(X) -> command, from system_actions.
+        n = split(actions, lines, "\n")
+        for (i = 1; i <= n; i++) {
+            if (split(lines[i], kv, "\t") == 2) cmd[kv[1]] = kv[2]
+        }
+    }
+
+    # Turn CamelCase into words so an action reads as a description rather than
+    # an identifier: MoveToWorkspace -> "move to workspace". Applied only to the
+    # action name, never to a command, which must stay verbatim to be typed.
+    function words(s,   out) {
+        out = s
+        gsub(/([a-z0-9])([A-Z])/, "\\1 \\2", out)
+        return tolower(out)
+    }
+
+    # Super is written first and Shift last, so that chords sort and read the
+    # way they are pressed rather than the way the RON happened to list them.
+    function order(m) {
+        if (m == "Super") return 1
+        if (m == "Ctrl")  return 2
+        if (m == "Alt")   return 3
+        if (m == "Shift") return 4
+        return 5
+    }
+
+    {
+        mods = $1; key = $2; action = $3
+        if (action == "") next
+
+        # "Super, Alt" -> "Super + Alt", in a fixed order.
+        cnt = split(mods, m, /,[[:space:]]*/)
+        for (i = 1; i <= cnt; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", m[i])
+        for (i = 1; i < cnt; i++)
+            for (j = i + 1; j <= cnt; j++)
+                if (order(m[j]) < order(m[i])) { t = m[i]; m[i] = m[j]; m[j] = t }
+
+        chord = ""
+        for (i = 1; i <= cnt; i++) chord = chord (chord == "" ? "" : " + ") m[i]
+        if (key != "") chord = chord (chord == "" ? "" : " + ") key
+
+        # Spawn("cmd") is a command as written in cosmic.conf.
+        # System(X) is an action name that system_actions turns into a command.
+        # Everything else is internal to the compositor and has no command; the
+        # action itself is the honest answer, and inventing a program name for
+        # Focus(Left) would be a lie.
+        what = ""
+        if (action ~ /^Spawn\(".*"\)$/) {
+            what = substr(action, 8, length(action) - 9)
+        } else if (action ~ /^System\(/) {
+            name = action
+            sub(/^System\(/, "", name); sub(/\)$/, "", name)
+            what = (name in cmd) ? cmd[name] : words(name)
+        } else if (action ~ /\(/) {
+            name = action; arg = action
+            sub(/\(.*$/, "", name)
+            sub(/^[^(]*\(/, "", arg); sub(/\)$/, "", arg)
+            what = words(name) " " arg
+        } else {
+            what = words(action)
+        }
+
+        # Last write wins, which is why custom is appended after defaults.
+        seen[chord] = what
+        if (!(chord in orderkey)) orderkey[chord] = ++seq
+    }
+
+    END {
+        for (c in seen) printf "%d\t%s\t%s\n", orderkey[c], c, seen[c]
+    }
+    ' <<<"$raw" | sort -n | cut -f2-
+)"
+
+count="$(grep -c . <<<"$rendered")"
+((count > 0)) || fail "every shortcut line failed to parse; the RON format has changed"
+
+# Column-aligned so the chords form a readable left edge. Done here rather than
+# in awk because the width has to be measured across the whole set first.
+width="$(cut -f1 <<<"$rendered" | LC_ALL=C awk '{ if (length($0) > w) w = length($0) } END { print w }')"
+
+# -dmenu rather than a static window, so the list is filterable: 122 bindings is
+# more than fits on a screen, and typing "workspace" is how you actually use
+# this. No theme arguments, so ~/.config/rofi/config.rasi applies and it matches
+# the launcher and the power menu.
+#
+# The selection is discarded. This is a reference, not a menu -- there is no
+# sensible action for "you picked Super + Q", and running the bound command on
+# Return would make an accidental keypress close a window from a help screen.
+LC_ALL=C awk -F'\t' -v w="$width" '{ printf "%-*s   %s\n", w, $1, $2 }' <<<"$rendered" |
+    rofi -dmenu -i -no-custom -no-show-icons -p "keys" \
+         -mesg "$count shortcuts" >/dev/null 2>&1 || :

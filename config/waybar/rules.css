@@ -77,15 +77,20 @@ window#waybar {
 /* Every status module gets the same pill. Listed one per line because waybar
  * takes the CSS id from the module name with `/` turned into `-`, so these are
  * not guessable from the config and are worth being able to read down. */
+#custom-keybinds,
+#window,
 #mpris,
 #clock,
 #privacy,
+#systemd-failed-units,
 #idle_inhibitor,
 #custom-swaync,
 #bluetooth,
 #pulseaudio,
 #network,
+#disk,
 #temperature,
+#custom-fan,
 #cpu,
 #memory,
 #power-profiles-daemon,
@@ -104,6 +109,12 @@ window#waybar {
  * anything. */
 #custom-power:hover {
     color: @critical;
+}
+
+/* The other button on the bar. Accent rather than critical, because this one is
+ * safe to press. */
+#custom-keybinds:hover {
+    color: @accent;
 }
 
 #clock {
@@ -137,12 +148,35 @@ window#waybar {
     color: @warning;
 }
 
+/* Same reasoning as mpris, but the class is not on the widget. waybar puts
+ * `empty` on the whole bar rather than on #window, so the selector has to
+ * descend into it -- waybar-hyprland-window(5) gives it as exactly this:
+ *
+ *     window#waybar.empty #window   When no windows are in the workspace
+ *
+ * The first `window` is the GTK window, the second is our module; they are
+ * unrelated names that collide, which is why this reads so oddly. */
+window#waybar.empty #window {
+    padding: 0;
+    background: transparent;
+}
+
 /* States. These recolour the text inside the pill rather than the pill, so a
  * warning cannot make a module unreadable against its own background. */
 #battery.warning  { color: @warning; }
 #battery.critical { color: @critical; }
 #temperature.critical { color: @critical; }
 #network.disconnected { color: @critical; }
+
+/* No state class needed: hide-on-ok removes the module entirely at zero, so it
+ * is on screen only when there is something to report and can be coloured
+ * unconditionally. */
+#systemd-failed-units { color: @critical; }
+
+/* Set by hyprcosmic-fan: `high` above 4000 rpm, `idle` when every fan has
+ * stopped. `normal` is left alone. */
+#custom-fan.high { color: @warning; }
+#custom-fan.idle { color: @muted; }
 #pulseaudio.muted { color: @muted; }
 #idle_inhibitor.activated { color: @accent; }
 #custom-swaync.notification { color: @accent; }

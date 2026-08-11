@@ -50,15 +50,19 @@
     "height": 34,
     "spacing": 4,
 
-    "modules-left": ["ext/workspaces", "wlr/taskbar"],
+    "modules-left": ["custom/keybinds", "ext/workspaces", "wlr/taskbar", "hyprland/window"],
     "modules-center": ["mpris", "clock", "privacy"],
     "modules-right": [
+        "systemd-failed-units",
         "idle_inhibitor",
         "custom/swaync",
         "bluetooth",
         "pulseaudio",
         "network",
+        "disk",
         "temperature",
+        "temperature#gpu",
+        "custom/fan",
         "cpu",
         "memory",
         "power-profiles-daemon",
@@ -66,6 +70,23 @@
         "tray",
         "custom/power"
     ],
+
+    // Opens the keyboard reference. First on the bar because it is the thing
+    // you look for when you do not yet know where anything is.
+    //
+    // No "exec": this is a button, not a readout. A custom module with only a
+    // format and an on-click runs nothing on an interval, so it costs a static
+    // glyph and nothing else.
+    //
+    // The same script is on Super + Shift + / -- the binding is named in the
+    // tooltip because a help button you have to reach for with the mouse has
+    // not finished helping.
+    "custom/keybinds": {
+        "format": "\udb80\udf0c",
+        "tooltip": true,
+        "tooltip-format": "keyboard shortcuts\nSuper + Shift + /",
+        "on-click": "hyprcosmic-keybinds"
+    },
 
     "ext/workspaces": {
         "format": "{name}",
@@ -78,6 +99,56 @@
         "tooltip-format": "{title}",
         "on-click": "activate",
         "on-click-middle": "close"
+    },
+
+    // The taskbar above shows which windows exist; this shows which one has the
+    // keyboard. Nothing else on the bar answered that.
+    //
+    // This is the one module here that talks to the fork's Hyprland IPC rather
+    // than to a Wayland protocol, and it needs no compositor change: waybar
+    // reads `j/activewindow` on startup and then follows `activewindow>>` on
+    // .socket2.sock, both of which hypr_ipc already serves. A retitle of the
+    // focused window propagates too -- src/hypr_ipc/sync.rs snapshots the
+    // focused window as (class, title) and emits on any difference, which is
+    // why upstream's separate `windowtitle` event is not needed here. Upstream
+    // Hyprland emits from call sites and so must announce that case
+    // separately; this fork diffs state on a 150 ms tick and cannot miss it.
+    //
+    // `separate-outputs` is left off deliberately: there is one bar on one
+    // output, and with it on, the module reports that monitor's active window
+    // rather than the focused one, which on a single head is the same answer by
+    // a longer route.
+    "hyprland/window": {
+        "format": "\uf2d0  {title}",
+        "max-length": 60,
+        "tooltip": true,
+        "tooltip-format": "{title}\n\nclass: {class}",
+        // Titles are written for a window's own title bar, not for a 60-column
+        // slot on a bar, so the worst offenders are trimmed to the part that
+        // identifies the window. ECMAScript regex; the value is a replacement
+        // string where $1 is the first capture.
+        //
+        // The separator is an em dash, and it is written as an escape
+        // for the same reason every glyph in this file is: the template is read
+        // as ASCII and the generator refuses to emit anything that is not, so a
+        // literal em dash pasted here fails the build rather than reaching the
+        // bar. COSMIC's applications really do use an em dash and not a hyphen
+        // -- `j/clients` reports "dingo@fedora:~ <em dash> COSMIC Terminal" -- so
+        // a rule written with a hyphen matches nothing.
+        //
+        // There is deliberately no catch-all for the empty title. waybar's
+        // documentation does not say whether a rule is applied on a full match
+        // or a search, so an empty pattern is either "matches nothing but the
+        // empty title" or "matches every title", and the difference is the
+        // whole bar. The no-window case is handled in rules.css instead, the
+        // same way #mpris already handles having nothing to say.
+        "rewrite": {
+            "(.*) [-\u2014] Vivaldi": "$1",
+            "(.*) [-\u2014] COSMIC Terminal": "$1",
+            "(.*) [-\u2014] COSMIC Text Editor": "$1",
+            "(.*) [-\u2014] COSMIC Files": "$1",
+            "(.*) [-\u2014] Mozilla Firefox": "$1"
+        }
     },
 
     // Renders nothing at all when no player is running, which is what we want
@@ -118,6 +189,23 @@
             { "type": "screenshare", "tooltip": true },
             { "type": "audio-in", "tooltip": true }
         ]
+    },
+
+    // First on the right, and silent unless something is wrong. A unit that
+    // failed at boot otherwise stays failed until the day you happen to run
+    // `systemctl --failed` -- there is no other surface for it in a COSMIC
+    // session, which has no equivalent of GNOME's abrt notification.
+    //
+    // Both scopes are watched. The user scope is where a session's own units
+    // fail, which is the half that matters here and the half a system-only
+    // check misses.
+    "systemd-failed-units": {
+        "format": "\udb80\udc26 {nr_failed}",
+        "format-ok": "",
+        "system": true,
+        "user": true,
+        "hide-on-ok": true,
+        "on-click": "cosmic-term -e sh -c 'systemctl --failed; systemctl --user --failed; exec $SHELL'"
     },
 
     "idle_inhibitor": {
@@ -205,6 +293,19 @@
         "on-click": "cosmic-settings network"
     },
 
+    // Root only. /home is on the same filesystem here, and a second entry for
+    // it would be the same number twice.
+    //
+    // No warning threshold is set: waybar's disk module has no `states`, so the
+    // colour comes from rules.css, which cannot see the percentage. The number
+    // is the warning.
+    "disk": {
+        "path": "/",
+        "format": "\udb80\udeca {percentage_used}%",
+        "interval": 60,
+        "tooltip-format": "{used} used of {total} on {path}, {free} free"
+    },
+
     // Tctl from k10temp, not thermal_zone0. The two read within a degree of
     // each other here, but the hwmon path names the CPU sensor explicitly.
     //
@@ -218,6 +319,43 @@
         "critical-threshold": 90,
         "interval": 5,
         "tooltip-format": "CPU package: {temperatureC} C"
+    },
+
+    // A second instance of the same module. `temperature#gpu` is waybar's alias
+    // syntax: everything before the # selects the module, everything after is
+    // just a name, and it becomes #temperature.gpu in CSS.
+    //
+    // The dGPU's own sensor, not the CPU's. On this machine the two diverge by
+    // 30 degrees under load, so one reading cannot stand for both.
+    //
+    // temp1_label reads "edge" -- the die edge, which is the sensor amdgpu
+    // exposes on this card. There is no junction or memory sensor here to
+    // prefer over it.
+    //
+    // hwmon-path-abs is safe for this one: the PCI device has exactly one
+    // hwmonN inside it, unlike the asus platform device that custom/fan below
+    // has to work around.
+    "temperature#gpu": {
+        "hwmon-path-abs": "/sys/devices/pci0000:00/0000:00:08.1/0000:05:00.0/hwmon",
+        "input-filename": "temp1_input",
+        "format": "\udb82\udcae {temperatureC} C",
+        "critical-threshold": 95,
+        "interval": 5,
+        "tooltip-format": "GPU edge: {temperatureC} C"
+    },
+
+    // Speed of the fastest fan, with every fan in the tooltip. See the script
+    // for why this is not a temperature module with a different divisor and not
+    // an hwmon-path-abs: both were tried and neither can name this sensor.
+    //
+    // Emits nothing on a machine with no readable fan, and waybar draws an
+    // empty custom module as nothing, so this costs no space on hardware that
+    // has none.
+    "custom/fan": {
+        "exec": "hyprcosmic-fan",
+        "return-type": "json",
+        "format": "\udb80\ude10 {} rpm",
+        "interval": 5
     },
 
     "cpu": {
