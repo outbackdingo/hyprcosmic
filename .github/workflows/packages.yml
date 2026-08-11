@@ -546,10 +546,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          # Draft, deliberately. These packages conflict with the
-          # distribution's cosmic-comp and cosmic-session, so installing one
-          # replaces the machine's desktop. That is worth a human reading the
-          # notes before it is published rather than a tag push making it
-          # available.
+          # Draft, deliberately. These install beside the distribution's COSMIC
+          # rather than over it, so a bad one costs a logout rather than a
+          # desktop -- but a tag push is still not a decision to publish. The
+          # generated notes are written by a machine reading commit subjects,
+          # and the Debian package differs from the other two in what it
+          # carries; both are worth a human reading before anyone downloads.
           draft: true
           generate_release_notes: true
