@@ -172,6 +172,16 @@ things follow: your edits survive every login and upgrade, and deleting a file
 is how you ask for the default back. `~/.cache/hyprcosmic/session.log` records
 what was seeded.
 
+The cost of that is real and worth stating: an upgrade that improves a shipped
+default will not reach a file you already have. If a release changes something
+you want — the `autostart` line that sets the wallpaper did change once — take
+it deliberately, after reading what you would lose:
+
+```shell
+diff -u ~/.config/hyprcosmic/autostart /usr/share/hyprcosmic/skel/hyprcosmic/autostart
+cp /usr/share/hyprcosmic/skel/hyprcosmic/autostart ~/.config/hyprcosmic/
+```
+
 `autostart` is the one that matters most, because it is what starts waybar, the
 wallpaper daemon and `hyprcosmic-conf watch`. Until the session seeded it, a
 machine that had never run HyprCosmic logged in to a bare compositor: running,
