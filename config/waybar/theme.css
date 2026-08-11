@@ -1,0 +1,18 @@
+/* Step 2 of the import chain in style.css: the installed HyDE theme's
+ * waybar.theme.
+ *
+ * This copy is deliberately empty of rules. It is not a stub waiting to be
+ * written -- an empty file is the correct content when no theme has been
+ * imported, and it is what makes the other three steps work:
+ *
+ *   - A missing @import is fatal in GTK, so style.css cannot name a file that
+ *     might not exist. This one always exists, from the moment the session
+ *     first starts.
+ *   - Every colour the rules consume already has a default from palette.css
+ *     and bridge-hyde.css, so a file that defines nothing leaves a complete
+ *     stylesheet rather than an undefined name.
+ *
+ * `hyprcosmic-conf import-theme` overwrites this with the waybar.theme of the
+ * theme being imported. Anything written here by hand is lost at that point,
+ * which is why the per-user override belongs in style.css instead.
+ */

@@ -81,8 +81,22 @@ Requires:       rofi-wayland
 # unsatisfiable dependency is not.
 Recommends:     awww
 
-# Nerd Font glyphs are most of what the bar draws.
-Recommends:     nerd-fonts
+# Nerd Font glyphs are most of what the bar and the launcher draw, and Fedora
+# has nothing that provides them. This line used to say `nerd-fonts`, which is
+# not a package in any Fedora repository -- so it could never be satisfied, and
+# the fonts never arrived, silently, because that is what Recommends does when
+# it cannot resolve. The two patched fonts Fedora does ship are no help either:
+# texlive-inconsolata-nerd-font lands under texmf-dist and kitty's
+# SymbolsNerdFont under /usr/lib64/kitty, and fontconfig scans neither path.
+#
+# So recommend the fallback the configuration actually names. rules.rasi asks
+# for "JetBrainsMono Nerd Font, Noto Sans Mono": this is the second of the two.
+# It cannot draw a single glyph, but it decides what the text is set in instead
+# of leaving that to whatever fontconfig happens to pick. A virtual provide
+# rather than a name, because two packages carry it and either will do.
+#
+# The glyphs themselves have to be installed by hand. See README.md.
+Recommends:     font(notosansmono)
 
 %description
 HyprCosmic is a fork of the COSMIC desktop that takes its configuration in

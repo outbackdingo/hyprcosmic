@@ -153,26 +153,66 @@ Then log out. `HyprCosmic` appears on the greeter's session menu next to
 
 ### Per-user setup
 
-`just install` places nothing in a home directory — under `sudo` the only home
-directory it could see is root's. Four files are yours to place:
+Nothing to do. The session seeds `~/.config` from `/usr/share/hyprcosmic/skel`
+at login, copying only what is missing:
 
-```shell
-mkdir -p ~/.config/hyprcosmic/waybar
-cp config/cosmic.conf config/autostart ~/.config/hyprcosmic/
-cp config/waybar/style.css ~/.config/hyprcosmic/waybar/
+```
+~/.config/hyprcosmic/autostart
+~/.config/hyprcosmic/cosmic.conf
+~/.config/hyprcosmic/waybar/style.css
+~/.config/hyprcosmic/waybar/theme.css
+~/.config/rofi/config.rasi
+~/.config/rofi/theme.rasi
+~/.config/rofi/local.rasi
 ```
 
-`style.css` is per-user rather than shared for one reason: it `@import`s a
-sibling `theme.css` holding the installed HyDE theme's palette, and a relative
-`@import` resolves against the importing file. That sibling is written by
-`import-theme --assets`, so the bar is unstyled until you have imported a theme.
+An existing file is never touched, not even when the skeleton is newer — the
+file wins, one way, and a login is not an invitation to edit your config. Two
+things follow: your edits survive every login and upgrade, and deleting a file
+is how you ask for the default back. `~/.cache/hyprcosmic/session.log` records
+what was seeded.
 
-The fourth file, `~/.config/rofi/config.rasi`, is written by `import-theme
---assets` too, because it names per-machine paths.
+`autostart` is the one that matters most, because it is what starts waybar, the
+wallpaper daemon and `hyprcosmic-conf watch`. Until the session seeded it, a
+machine that had never run HyprCosmic logged in to a bare compositor: running,
+holding the display and accepting input, with nothing drawn on the screen and no
+binding that opened anything.
+
+`style.css` and `config.rasi` are per-user rather than shared for one reason:
+each `@import`s a sibling holding the installed HyDE theme's palette, and a
+relative `@import` resolves against the importing file. Those siblings —
+`theme.css`, `theme.rasi` and `local.rasi` — arrive empty and are written by
+`import-theme --assets`. They ship empty rather than not at all because a
+missing `@import` is fatal to both consumers rather than a warning they skip:
+GTK fails the entire stylesheet, and rofi reports the error in place of the
+launcher.
+
+Working from a git checkout, `just install` still places nothing in a home
+directory — under `sudo` the only home directory it could see is root's — but it
+does install the skeleton, so logging in seeds the same seven files.
 
 Runtime dependencies of the shell itself are not COSMIC's and are not built
 here: `waybar`, `rofi` (wayland build), `awww` (formerly `swww`), and a Nerd
-Font for the bar's glyphs.
+Font for the glyphs the bar and the launcher draw with.
+
+The font is the one thing the packaging cannot do for you on Fedora, which has
+no package that provides a Nerd Font at all: `texlive-inconsolata-nerd-font`
+installs under `texmf-dist` and kitty's `SymbolsNerdFont` under
+`/usr/lib64/kitty`, and fontconfig scans neither. Arch has
+`ttf-nerd-fonts-symbols`. Otherwise, install one into your own font directory:
+
+```shell
+mkdir -p ~/.local/share/fonts/JetBrainsMonoNerdFont
+# unpack JetBrainsMono.zip from github.com/ryanoasis/nerd-fonts/releases there
+fc-cache -f
+fc-list ":charset=e0b0" family | grep -i nerd   # non-empty: the glyphs resolve
+```
+
+Query the charset on its own, as above. Adding a family filter —
+`":charset=e0b0:family=JetBrainsMono Nerd Font"` — reports nothing even when the
+font does cover the codepoint, because the family string is a comma-separated
+alias list (`JetBrainsMono Nerd Font,JetBrainsMono NF`). Without the font the
+bar still works; every icon is a tofu box.
 
 ## Configuration
 

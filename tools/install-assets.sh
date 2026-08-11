@@ -97,23 +97,43 @@ SOURCES=(
     "config/waybar/generate-config.py"    # the generator, and the icon table
 )
 
-# Files under config/ that are deliberately NOT installed here, each with the
-# thing that does install it. This list is not decoration: the audit below
-# refuses to run unless every file under config/ appears in exactly one of the
-# three lists, so adding a file forces a decision about where it belongs instead
-# of letting it be quietly left out of all of them.
-PER_USER=(
-    "config/autostart"           # ~/.config/hyprcosmic/autostart, by hand
-    "config/cosmic.conf"         # ~/.config/hyprcosmic/cosmic.conf, by hand
-    "config/waybar/style.css"    # ~/.config/hyprcosmic/waybar/style.css; @imports a sibling theme.css
-    "config/rofi/config.rasi"    # ~/.config/rofi/config.rasi, by `cosmic-conf import-theme --assets`
+# Per-user files. These cannot live in share/hyprcosmic with the rest: style.css
+# and config.rasi reach their theme through relative @imports, which resolve
+# against the importing file, so the importer has to sit in the same per-user
+# directory as the theme it picks up.
+#
+# They are still installed, as a skeleton. start-hyprcosmic copies anything
+# missing out of share/hyprcosmic/skel into $XDG_CONFIG_HOME when a session
+# starts, and never overwrites. Destinations below therefore mirror the layout
+# under ~/.config exactly -- skel/hyprcosmic/autostart becomes
+# ~/.config/hyprcosmic/autostart -- because the seeding is a plain copy that
+# reads the layout off this tree rather than a list it keeps in step by hand.
+#
+# Before this existed the answer was "by hand", which meant a machine that had
+# never seen HyprCosmic logged into a bare compositor: no autostart, so no
+# waybar and no wallpaper, and no keybindings, on a screen with nothing drawn on
+# it. Nothing reported an error, because from the session's point of view
+# nothing had gone wrong.
+SKEL=(
+    "config/autostart:share/hyprcosmic/skel/hyprcosmic/autostart:644"
+    "config/cosmic.conf:share/hyprcosmic/skel/hyprcosmic/cosmic.conf:644"
+    "config/waybar/style.css:share/hyprcosmic/skel/hyprcosmic/waybar/style.css:644"
+    "config/waybar/theme.css:share/hyprcosmic/skel/hyprcosmic/waybar/theme.css:644"
+    "config/rofi/config.rasi:share/hyprcosmic/skel/rofi/config.rasi:644"
+    "config/rofi/theme.rasi:share/hyprcosmic/skel/rofi/theme.rasi:644"
+    "config/rofi/local.rasi:share/hyprcosmic/skel/rofi/local.rasi:644"
 )
 
+# Refuses to run unless every file under config/ appears in exactly one of
+# SHARED, SKEL or SOURCES. This is not decoration: adding a file forces a
+# decision about where it belongs instead of letting it be quietly left out of
+# all three and never installed.
 audit_config_tree() {
-    local f rel known=" ${PER_USER[*]} ${SOURCES[*]} " unclassified=()
+    local f rel known=" ${SOURCES[*]} " unclassified=()
     # Built with a loop, not `${SHARED[*]%%:*}`: that form strips the suffix
     # from the first element only and silently keeps the rest whole.
     for f in "${SHARED[@]}"; do known+="${f%%:*} "; done
+    for f in "${SKEL[@]}"; do known+="${f%%:*} "; done
 
     while IFS= read -r -d '' f; do
         rel="${f#"$REPO"/}"
@@ -126,8 +146,8 @@ audit_config_tree() {
     # only directories are pruned.
     done < <(find "$REPO/config" -name '.?*' -type d -prune -o -type f -print0 | sort -z)
 
-    ((${#unclassified[@]} == 0)) || die "not listed as shared or per-user: ${unclassified[*]}
-  Add each to SHARED or PER_USER in $(basename "${BASH_SOURCE[0]}") and say which."
+    ((${#unclassified[@]} == 0)) || die "not listed as shared, skeleton or generator input: ${unclassified[*]}
+  Add each to SHARED, SKEL or SOURCES in $(basename "${BASH_SOURCE[0]}") and say which."
 }
 
 # The prefix is only half honoured, and pretending otherwise would be worse than
@@ -138,11 +158,12 @@ audit_config_tree() {
 check_prefix_assumptions() {
     [[ "$PREFIX" == /usr ]] && return 0
     local hits
-    hits="$(cd "$REPO" && grep -rl '/usr/share/hyprcosmic' config/ 2>/dev/null | sort | tr '\n' ' ')"
+    hits="$(cd "$REPO" && grep -rl '/usr/share/hyprcosmic' config/ cosmic-session/data/ 2>/dev/null | sort | tr '\n' ' ')"
     [[ -z "$hits" ]] && return 0
     warn "PREFIX=$PREFIX, but these name /usr/share/hyprcosmic literally and cannot interpolate it:"
     warn "  $hits"
     warn "they will keep reading /usr/share unless you edit them; rofi will show a parse error if it is empty"
+    warn "start-hyprcosmic is the exception: set HYPRCOSMIC_SKEL=$PREFIX/share/hyprcosmic/skel to point the seeding at this prefix"
 }
 
 # Fail before touching anything rather than half way through. The nearest
@@ -198,7 +219,7 @@ handle() {
 audit_config_tree
 [[ "$MODE" == install ]] && check_prefix_assumptions
 
-targets=("${SHARED[@]}")
+targets=("${SHARED[@]}" "${SKEL[@]}")
 if ((WITH_SESSION)); then
     if [[ -d "$REPO/cosmic-session/data" ]]; then
         targets+=("${SESSION[@]}")

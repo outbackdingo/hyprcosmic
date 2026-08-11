@@ -1,0 +1,16 @@
+/* Step 2 of the import chain in config.rasi: the installed HyDE theme's rofi
+ * colours.
+ *
+ * Empty on purpose, for the same reason as waybar's theme.css: a missing
+ * @import is an error rofi reports in place of the launcher rather than a
+ * warning it skips, so config.rasi can only import a file that is guaranteed
+ * to exist. palette.rasi already defines every name rules.rasi reads, so
+ * defining nothing here leaves a complete theme rather than an unresolved
+ * reference.
+ *
+ * `hyprcosmic-conf import-theme` overwrites this with the imported theme's
+ * rofi colours. Hand-written overrides belong in local.rasi, which is imported
+ * after the rules and is left alone unless --overwrite is passed.
+ */
+
+* {}

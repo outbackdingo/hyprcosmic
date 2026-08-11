@@ -1,0 +1,29 @@
+/* Per-machine launcher settings for HyprCosmic.
+ *
+ * Empty until `hyprcosmic-conf import-theme --assets` writes it. It exists from
+ * the first session because config.rasi imports it, and a missing @import is an
+ * error rofi reports in place of the launcher rather than a warning it skips.
+ *
+ * It is the last of the four imports in config.rasi, so anything here wins; it
+ * is also overwritten by the next import run with --overwrite, so keep hand
+ * edits somewhere else.
+ *
+ * Two things belong in this file and nothing else does: values that name a path
+ * or a package on this particular machine, which neither /usr/share/hyprcosmic
+ * nor a HyDE theme file can know. Concretely, that is the icon theme and the
+ * sidebar image:
+ *
+ *   configuration {
+ *       icon-theme: "Tela-circle-purple", "Adwaita";
+ *   }
+ *
+ *   dummywall {
+ *       background-image: url("/home/you/.local/share/wallpapers/hyprcosmic/current", height);
+ *   }
+ *
+ * Both are shown commented out rather than set, because a default that named
+ * an icon theme nobody has installed, or a wallpaper path under someone else's
+ * home, would be worse than no default at all.
+ */
+
+* {}
