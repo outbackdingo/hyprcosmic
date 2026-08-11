@@ -16,6 +16,7 @@ pub mod parser;
 pub mod resolve;
 pub mod schema;
 pub mod watch;
+pub mod windowrule;
 pub mod workspace;
 
 pub use bind::{parse_bind, Bind};
@@ -23,6 +24,7 @@ pub use emit::{EmitError, Emitter, Planned};
 pub use import::{import_hypr_theme, render_report, Import};
 pub use parser::{parse, Ast, ParseError, Span};
 pub use resolve::{resolve, Diagnostic, Resolved, Value, Write, WriteKind};
+pub use windowrule::{parse_window_rule, WindowRuleDecl};
 pub use workspace::{parse_workspace, WorkspaceDecl};
 
 /// Render a diagnostic against source text, cargo-style.

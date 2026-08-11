@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use crate::bind;
 use crate::parser::{Ast, Item, Span, Spanned};
 use crate::schema::{self, Entry, Range, Target, Ty};
+use crate::windowrule;
 use crate::workspace;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -269,14 +270,33 @@ pub fn resolve(ast: &Ast) -> Result<Resolved, Vec<Diagnostic>> {
     let mut projected: BTreeMap<TargetKey, BTreeMap<Vec<String>, Value>> = BTreeMap::new();
     let mut whole: BTreeMap<TargetKey, (Value, Span)> = BTreeMap::new();
 
-    // `bind` and `workspace` are the repeatable keys in the language: many
-    // lines fold into a single value rather than the last one winning, so
-    // neither can go through the schema, which is built around one conf key
-    // naming one value.
+    // `bind`, `workspace` and `windowrule` are the repeatable keys in the
+    // language: many lines fold into a single value rather than the last one
+    // winning, so none of them can go through the schema, which is built around
+    // one conf key naming one value.
     let mut binds: Vec<(bind::Bind, Span)> = Vec::new();
     let mut workspaces: Vec<(workspace::WorkspaceDecl, Span)> = Vec::new();
+    let mut window_rules: Vec<windowrule::WindowRuleDecl> = Vec::new();
 
     for (conf, raw_value, key_span) in &flat {
+        // `windowrulev2` was Hyprland's name for this syntax before it became
+        // the only one; configs in the wild are still full of it.
+        if conf == "windowrule" || conf == "windowrulev2" {
+            let expanded = expand_vars(&raw_value.value, &vars);
+            // Not deduplicated: two rules can differ only in their title and
+            // both be wanted, and the compositor takes the first that matches,
+            // so the order they were written in is the whole semantics.
+            match windowrule::parse_window_rule(&expanded, raw_value.span) {
+                Ok(r) => window_rules.push(r),
+                Err(e) => diags.push(Diagnostic {
+                    message: e.message,
+                    span: e.span,
+                    help: e.help,
+                }),
+            }
+            continue;
+        }
+
         if conf == "workspace" {
             let expanded = expand_vars(&raw_value.value, &vars);
             match workspace::parse_workspace(&expanded, raw_value.span) {
@@ -425,6 +445,21 @@ pub fn resolve(ast: &Ast) -> Result<Resolved, Vec<Diagnostic>> {
                 component: "com.system76.CosmicComp".into(),
                 version: 1,
                 key: "pinned_workspaces".into(),
+            },
+            kind: WriteKind::Verbatim(rendered),
+        });
+    }
+
+    if !window_rules.is_empty() {
+        let rendered = windowrule::render(&window_rules);
+        writes.push(Write {
+            // Read live: cosmic-comp's config watcher has a `window_rules` arm,
+            // so an edit applies to the next window that opens. Unlike
+            // `pinned_workspaces`, which waits for the next login.
+            target: TargetKey {
+                component: "com.system76.CosmicComp".into(),
+                version: 1,
+                key: "window_rules".into(),
             },
             kind: WriteKind::Verbatim(rendered),
         });
@@ -649,6 +684,84 @@ mod tests {
     #[test]
     fn a_bad_workspace_is_reported_with_the_rest_of_the_file() {
         let d = errors("workspace = 0\ngeneral {\n    gaps_inn = 8\n}\n");
+        assert_eq!(d.len(), 2, "resolve reports everything in one pass: {d:?}");
+    }
+
+    #[test]
+    fn window_rules_fold_into_one_write_against_the_comp_window_rules_key() {
+        let r = resolved(
+            "windowrule = workspace name:web, class:^(vivaldi)$\n\
+             windowrule = workspace 1, class:^(kitty)$\n",
+        );
+        let w: Vec<_> = r
+            .writes
+            .iter()
+            .filter(|w| w.target.key == "window_rules")
+            .collect();
+        assert_eq!(w.len(), 1, "every rule belongs to one list");
+        assert_eq!(w[0].target.component, "com.system76.CosmicComp");
+        assert_eq!(w[0].target.version, 1);
+
+        let WriteKind::Verbatim(ron) = &w[0].kind else {
+            panic!("expected verbatim RON, got {:?}", w[0].kind);
+        };
+        assert!(ron.contains(r#"workspace: Name("web")"#), "{ron}");
+        assert!(ron.contains("workspace: Index(1)"), "{ron}");
+    }
+
+    /// The compositor takes the first rule that matches, so a file that reads
+    /// top to bottom has to be emitted top to bottom.
+    #[test]
+    fn window_rules_keep_the_order_they_were_written_in() {
+        let r = resolved(
+            "windowrule = workspace 1, class:^(a)$\n\
+             windowrule = workspace 2, class:^(b)$\n\
+             windowrule = workspace 3, class:^(c)$\n",
+        );
+        let WriteKind::Verbatim(ron) = find(&r, "com.system76.CosmicComp", "window_rules") else {
+            panic!("expected verbatim RON");
+        };
+        let seen: Vec<&str> = ron
+            .lines()
+            .filter(|l| l.contains("app_id:"))
+            .map(|l| l.trim())
+            .collect();
+        assert_eq!(seen.len(), 3);
+        assert!(seen[0].contains("^(a)$"), "{ron}");
+        assert!(seen[1].contains("^(b)$"), "{ron}");
+        assert!(seen[2].contains("^(c)$"), "{ron}");
+    }
+
+    /// The v2 spelling is what configs in the wild are written with.
+    #[test]
+    fn windowrulev2_is_the_same_key() {
+        let r = resolved("windowrulev2 = workspace 2, class:^(firefox)$\n");
+        let WriteKind::Verbatim(ron) = find(&r, "com.system76.CosmicComp", "window_rules") else {
+            panic!("expected verbatim RON");
+        };
+        assert!(ron.contains("workspace: Index(2)"), "{ron}");
+    }
+
+    /// Symmetric with the bind and workspace cases: writing an empty list would
+    /// be a change for someone whose cosmic.conf never mentions window rules.
+    #[test]
+    fn no_window_rules_means_the_list_is_left_alone() {
+        let r = resolved("general {\n    gaps_in = 4\n}\n");
+        assert!(r.writes.iter().all(|w| w.target.key != "window_rules"));
+    }
+
+    #[test]
+    fn a_window_rule_expands_variables() {
+        let r = resolved("$browser = vivaldi\nwindowrule = workspace 2, class:^($browser)$\n");
+        let WriteKind::Verbatim(ron) = find(&r, "com.system76.CosmicComp", "window_rules") else {
+            panic!("expected verbatim RON");
+        };
+        assert!(ron.contains("^(vivaldi)$"), "{ron}");
+    }
+
+    #[test]
+    fn a_bad_window_rule_is_reported_with_the_rest_of_the_file() {
+        let d = errors("windowrule = float, class:foo\ngeneral {\n    gaps_inn = 8\n}\n");
         assert_eq!(d.len(), 2, "resolve reports everything in one pass: {d:?}");
     }
 

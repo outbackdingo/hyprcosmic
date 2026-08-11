@@ -8,6 +8,10 @@ description = "Compiles a single Hyprland-idiom config file into the cosmic-conf
 [dependencies]
 flate2 = "1.1.9"
 notify = "8.2.0"
+# Only to reject a bad `windowrule` expression at apply time rather than
+# letting it fail silently in the compositor. Pinned to the same major the
+# compositor matches with, so what compiles here compiles there.
+regex = "1"
 ron = "0.12"
 serde = { version = "1.0.229", features = ["derive"] }
 tar = "0.4.46"
