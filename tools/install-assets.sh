@@ -78,6 +78,7 @@ SHARED=(
     "config/bin/hyprcosmic-powermenu:bin/hyprcosmic-powermenu:755"
     "config/bin/hyprcosmic-fan:bin/hyprcosmic-fan:755"
     "config/bin/hyprcosmic-keybinds:bin/hyprcosmic-keybinds:755"
+    "config/bin/hyprcosmic-wallpaper:bin/hyprcosmic-wallpaper:755"
 )
 
 # The session entry point. Kept apart from SHARED because it is versioned in the

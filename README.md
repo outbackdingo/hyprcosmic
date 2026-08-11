@@ -195,6 +195,15 @@ Runtime dependencies of the shell itself are not COSMIC's and are not built
 here: `waybar`, `rofi` (wayland build), `awww` (formerly `swww`), and a Nerd
 Font for the glyphs the bar and the launcher draw with.
 
+The wallpaper is `awww`'s job, and the image it draws is
+`~/.local/share/wallpapers/hyprcosmic/current` — a symlink `import-theme
+--assets` maintains. Before you have imported a theme there is no such link, so
+`hyprcosmic-wallpaper` falls back to whatever the distribution ships,
+`/usr/share/backgrounds/cosmic` first; the Fedora package recommends
+`cosmic-wallpapers` so there is something there. With no `awww` installed it
+says so on the session log and leaves the background alone, rather than waiting
+for a daemon that is never coming.
+
 The font is the one thing the packaging cannot do for you on Fedora, which has
 no package that provides a Nerd Font at all: `texlive-inconsolata-nerd-font`
 installs under `texmf-dist` and kitty's `SymbolsNerdFont` under

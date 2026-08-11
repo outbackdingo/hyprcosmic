@@ -81,6 +81,14 @@ Requires:       rofi-wayland
 # unsatisfiable dependency is not.
 Recommends:     awww
 
+# Something for the wallpaper daemon to draw before a theme has been imported.
+# hyprcosmic-wallpaper looks here first when ~/.local/share/wallpapers has no
+# `current` link yet, which on a machine that has just installed this package is
+# always. Nothing in the dependency chain pulls it in otherwise -- neither
+# cosmic-session nor cosmic-comp requires it -- and without it a first login is
+# a bar on a black screen.
+Recommends:     cosmic-wallpapers
+
 # Nerd Font glyphs are most of what the bar and the launcher draw, and Fedora
 # has nothing that provides them. This line used to say `nerd-fonts`, which is
 # not a package in any Fedora repository -- so it could never be satisfied, and

@@ -60,28 +60,26 @@ awww-daemon
 # get a blank screen below the bar with no error anywhere: the failure is that
 # nobody asked for a wallpaper, so nothing reports one missing.
 #
-# `sh -c` rather than a bare `awww img`, for one reason: awww-daemon above has
-# only just been forked and is not listening yet, so an immediate `awww img`
-# loses a race and fails silently. The loop waits for the daemon to answer
-# before setting the image.
+# It sets ~/.local/share/wallpapers/hyprcosmic/current, a symlink
+# `hyprcosmic-conf import-theme --assets` maintains beside the wallpapers it
+# copies. The link is used rather than a real path so that this and rofi's
+# local.rasi -- which shows the same image in the launcher's sidebar -- cannot
+# drift apart, and so that importing a different theme does not leave either
+# pointing at a file that no longer exists.
 #
-# This does not weaken the no-shell rule in the header. That rule exists so a
-# file naming programs cannot be escalated into arbitrary execution; naming
-# `sh` explicitly is just naming a program, and anyone able to write this file
-# could already name any binary on the system.
-#
-# `current` is a symlink `cosmic-conf import-theme --assets` maintains beside
-# the wallpapers it copies, pointing at one of them. It is named here rather
-# than a real file so that this line and rofi's local.rasi -- which shows the
-# same image in the launcher's sidebar -- cannot drift apart, and so that
-# importing a different theme does not leave this pointing at a path that no
-# longer exists.
+# Until a theme has been imported there is no such link, so on a machine that
+# has just installed the package it falls back to whatever the distribution
+# ships, /usr/share/backgrounds/cosmic first. A first login gets a desktop.
 #
 # Change the wallpaper by repointing the link, not by editing this file:
 #
 #     ln -sfn ~/".local/share/wallpapers/hyprcosmic/<theme>/<image>" \
 #             ~/.local/share/wallpapers/hyprcosmic/current
-sh -c 'until awww query >/dev/null 2>&1; do sleep 0.2; done; exec awww img "$HOME/.local/share/wallpapers/hyprcosmic/current"'
+#
+# A program rather than the `sh -c` this used to be, because waiting for the
+# daemon needs a bound: awww is a Recommends in a COPR, and the old unbounded
+# `until awww query` loop spun for the whole session on a machine without it.
+hyprcosmic-wallpaper
 
 # A terminal, unconditionally, as the way back in.
 #

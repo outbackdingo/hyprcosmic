@@ -1,0 +1,81 @@
+#!/bin/sh
+# Set the desktop wallpaper once the wallpaper daemon is listening.
+#
+# The hyprcosmic profile does not start cosmic-bg, so nothing else draws a
+# background: without this there is a black screen below the bar, and no error
+# anywhere, because the failure is that nobody asked for a wallpaper.
+#
+# This was three shell fragments on one autostart line. It became a program for
+# two reasons, both of which cost a first login its desktop:
+#
+#   - `current` is a symlink `import-theme --assets` maintains, so it does not
+#     exist until a theme has been imported. Naming it directly meant a machine
+#     that had just installed the package set no wallpaper at all.
+#   - The wait for the daemon was `until awww query; do sleep 0.2; done`, with
+#     nothing to stop it. awww is a Recommends and lives in a COPR, so on a
+#     machine that never enabled that repository the loop spun at 5 Hz for the
+#     length of the session.
+#
+# Both are now bounded and both say so on the session log.
+
+set -eu
+
+link="${XDG_DATA_HOME:-$HOME/.local/share}/wallpapers/hyprcosmic/current"
+
+# Searched in order when the link is not there yet. The first is cosmic-wallpapers,
+# which the Fedora package recommends for exactly this; the other two are where
+# freedesktop and KDE put theirs, so a machine with neither still has a chance.
+fallbacks='/usr/share/backgrounds/cosmic /usr/share/backgrounds /usr/share/wallpapers'
+
+if ! command -v awww >/dev/null 2>&1; then
+	echo "hyprcosmic-wallpaper: awww is not installed; no wallpaper set" >&2
+	exit 0
+fi
+
+# awww-daemon is started immediately above this in autostart and has only just
+# been forked, so an immediate `awww img` loses the race and fails silently.
+# Ten seconds is far longer than the daemon has ever taken and short enough that
+# a daemon which is never coming does not leave a process spinning all session.
+tries=0
+until awww query >/dev/null 2>&1; do
+	tries=$((tries + 1))
+	if [ "$tries" -ge 50 ]; then
+		echo "hyprcosmic-wallpaper: awww-daemon did not answer in 10s; no wallpaper set" >&2
+		exit 0
+	fi
+	sleep 0.2
+done
+
+# -e rather than -L, deliberately: it follows the link, so a `current` left
+# dangling by a deleted theme falls through to the defaults instead of being
+# handed to awww as a path that is not there.
+img=''
+if [ -e "$link" ]; then
+	img=$link
+else
+	for dir in $fallbacks; do
+		[ -d "$dir" ] || continue
+		for candidate in "$dir"/*.jpg "$dir"/*.jpeg "$dir"/*.png; do
+			# The glob is literal when nothing matches, which is why
+			# this tests the file rather than trusting the expansion.
+			[ -f "$candidate" ] || continue
+			img=$candidate
+			break
+		done
+		# An if, not `[ -n "$img" ] && break`: under set -e a trailing
+		# false at the end of the loop body would take the script with it.
+		if [ -n "$img" ]; then
+			break
+		fi
+	done
+	if [ -n "$img" ]; then
+		echo "hyprcosmic-wallpaper: no $link yet, falling back to $img" >&2
+	fi
+fi
+
+if [ -z "$img" ]; then
+	echo "hyprcosmic-wallpaper: no wallpaper found in $link or $fallbacks" >&2
+	exit 0
+fi
+
+exec awww img "$img"
